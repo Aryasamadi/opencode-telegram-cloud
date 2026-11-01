@@ -8,10 +8,14 @@ A GitHub Actions launcher for the **official** OpenCode CLI and the published
 - Installs the latest published npm releases of `@opencode/cli` and
   `@grinev/opencode-telegram-bot` independently on each run.
 - Starts an OpenCode V2 server bound to `127.0.0.1` and the Telegram bot on
-  the same GitHub-hosted Ubuntu runner.
+  the same GitHub-hosted Ubuntu runner. The adapter also prevents the bot's
+`/opencode_start` and `/opencode_stop` commands from overriding the workflow's
+server lifecycle.
 - Optionally configures your own OpenAI-compatible provider from GitHub
   Actions Secrets; its API key is never written to the repository.
-- Restores the previous OpenCode database, bot settings, and workspace files.
+- Restores the OpenCode session database, Telegram's selected session/project,
+  OpenCode model-selection metadata, custom providers, and checkpointed
+  workspace files.
 - On shutdown, creates an authenticated AES-256-GCM encrypted checkpoint and
   commits only the encrypted file at `.state/agent-state.v1.enc`.
 
@@ -53,9 +57,11 @@ config; it is referenced as `{env:AI_PROVIDER_API_KEY}` and supplied only to
 the OpenCode server process. The config is included in the encrypted
 checkpoint, so the provider remains available on later runner sessions.
 
-After startup, the upstream bot's existing `/models` → `Providers` menu reads
-the provider catalog from OpenCode. No parallel model picker or custom
-provider menu is added.
+After registration, send `/reload`, then use the upstream bot's existing
+`/models` → `Providers` menu. No parallel model picker or custom provider
+menu is added. The Cloud adapter also blocks `/opencode_start` and
+`/opencode_stop`: GitHub Actions owns the server process and its per-run
+password. End the workflow normally to shut down the server.
 
 This setup helper targets OpenAI-compatible `/models` discovery and Chat
 Completions-compatible providers. Providers that require Anthropic Messages,
@@ -69,16 +75,18 @@ While the workflow is running, send the bot this command in its authorized
 private chat:
 
 ```text
-/addmodel provider-id | Provider Name | https://api.example.com/v1 | API_KEY | optional-model-id
+/addmodel "Provider Name" "https://example.com/v1" "model-name" "API_KEY"
 ```
 
-The model ID is optional when the provider exposes a compatible `/models`
-endpoint. The bot deletes the submitted Telegram message before processing it;
-if deletion fails, it aborts without registering the provider. The API key is
-passed to the provider manager through a process environment variable, stored
-in the runner's OpenCode config with owner-only file permissions, and included
-only inside the encrypted checkpoint at rest. Never post provider keys in a
-public group or channel.
+All four quoted values are required. The provider ID is generated
+automatically from the provider name, so use a distinct name for each provider.
+The bot attempts to delete the submitted Telegram message before processing
+it; if deletion fails, it aborts without registering the provider. The key
+therefore briefly passes through Telegram before deletion, then is passed to
+the provider manager through a process environment variable. The OpenCode
+config stores it in the runner with owner-only file permissions, and the
+checkpoint committed to GitHub contains ciphertext only. Use this command
+only in the bot's authorized private chat, never in a group or channel.
 
 After a successful registration, send `/reload`, then use the existing
 `/models` → `Providers` menu to choose a model. No replacement model picker
@@ -120,10 +128,16 @@ messages live while the workflow is running.
 
 ## What persists, and what does not
 
-The OpenCode database is restored in place, so existing session IDs, messages,
-and OpenCode state are available to the next run. The bot's settings file also
-preserves the current project and session selection. The workspace directory
-is restored at the same absolute path (`/home/runner/projects`).
+The OpenCode database is restored in place, preserving session IDs and
+messages. The Telegram bot's settings file preserves its current project and
+session selection. The OpenCode model-selection metadata file under
+`~/.local/state/opencode` is also checkpointed. Files under
+`/home/runner/projects` are included in the encrypted workspace snapshot;
+files outside that directory (including uncommitted edits in the GitHub
+checkout directory) are not copied as project files. The new checkpoint
+diagnostics report whether the OpenCode database and selected Telegram session
+were found before saving and after restoring. Saving is stopped if settings
+claim a current session but the database is absent.
 
 This prevents the workflow from rebuilding a session by injecting a copied
 transcript into a brand-new session. It does **not** mean future model calls use
