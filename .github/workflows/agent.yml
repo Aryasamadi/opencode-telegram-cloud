@@ -119,27 +119,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          opencode-telegram start &
-          BOT_PID=$!
-          (
-            sleep 325m
-            kill -TERM "$BOT_PID" 2>/dev/null || true
-          ) &
-          TIMER_PID=$!
-
           set +e
-          wait "$BOT_PID"
+          timeout --signal=TERM --kill-after=30s 325m opencode-telegram start
           BOT_STATUS=$?
           set -e
 
-          kill "$TIMER_PID" 2>/dev/null || true
-          wait "$TIMER_PID" 2>/dev/null || true
-
+          if [[ "$BOT_STATUS" -eq 124 ]]; then
+            echo "Planned session limit reached; Telegram bot received SIGTERM."
+            exit 0
+          fi
           if [[ "$BOT_STATUS" -ne 0 ]]; then
             echo "::error::Telegram bot exited with status $BOT_STATUS"
             exit "$BOT_STATUS"
           fi
-          echo "Telegram bot stopped cleanly."
+          echo "Telegram bot exited cleanly before the planned session limit."
 
       - name: Stop OpenCode server cleanly
         if: always() && steps.start_opencode.outcome != 'skipped'
