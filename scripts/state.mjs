@@ -203,6 +203,7 @@ async function save() {
       archivePath,
       "--directory",
       home,
+      "--exclude=.config/opencode/service.json",
       "--exclude=node_modules",
       "--exclude=.venv",
       "--exclude=venv",
@@ -274,6 +275,8 @@ async function restore() {
       "--no-same-owner",
       "--no-same-permissions",
     ]);
+    // This file can contain a previous runner's PID/password and is never reusable.
+    await rm(path.join(home, ".config", "opencode", "service.json"), { force: true });
     await inspectRuntimeState(home, "After restore");
     process.stdout.write(
       "Previous OpenCode database, sessions, model state, bot settings, and workspaces restored.\n",
