@@ -13,14 +13,17 @@ checkpoint.
 
 ## Custom provider configuration
 
-When the four required `AI_*` secrets are present, the workflow creates a
-temporary OpenCode config with an OpenAI-compatible provider and model. The
-config uses `{env:AI_PROVIDER_API_KEY}` rather than embedding the key. The
-server receives the API key directly from GitHub Actions Secrets. The
-temporary config is under `RUNNER_TEMP`, not in the repository or checkpoint.
+When the optional provider secrets are supplied, the setup helper merges the
+provider into the persistent `~/.config/opencode/opencode.json` after restoring
+the encrypted checkpoint. Existing settings and provider entries are retained.
+If `AI_MODEL_ID` is omitted, the helper queries the provider's OpenAI-compatible
+`/models` endpoint and registers the returned IDs. The API key is represented
+as `{env:AI_PROVIDER_API_KEY}`; the key itself is never written to the config.
 
-The helper supports OpenAI-compatible Chat Completions endpoints. Other API
-protocols or provider-specific headers/adapters need a tailored configuration.
+The config directory is already part of the encrypted checkpoint. On the next
+runner, the provider config is restored before OpenCode starts. The upstream
+Telegram bot's existing `/models` → `Providers` menu reads this catalog
+directly; this controller does not create a parallel picker.
 
 ## Persistence boundary
 
