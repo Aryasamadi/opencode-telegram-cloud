@@ -13,6 +13,8 @@ test("upstream Telegram patch installs /addmodel and is idempotent", async () =>
   await mkdir(commandDir, { recursive: true });
   const router = [
     'import { mcpsCommand } from "../commands/mcp-catalog-command.js";',
+    'bot.command("opencode_start", (ctx) => opencodeStartCommand(ctx, container));',
+    'bot.command("opencode_stop", (ctx) => opencodeStopCommand(ctx, container));',
     'bot.command("mcps", (ctx) => mcpsCommand(ctx, container));',
   ].join("\n");
   const definitions = [
@@ -31,6 +33,9 @@ test("upstream Telegram patch installs /addmodel and is idempotent", async () =>
     const patchedDefinitions = await readFile(path.join(commandDir, "definitions.js"), "utf8");
     assert.match(patchedRouter, /addModelCommand/);
     assert.match(patchedRouter, /bot\.command\("addmodel"/);
+    assert.match(patchedRouter, /bot\.command\("opencode_start", \(ctx\) => ctx\.reply\(/);
+    assert.match(patchedRouter, /bot\.command\("opencode_stop", \(ctx\) => ctx\.reply\(/);
+    assert.doesNotMatch(patchedRouter, /opencodeStopCommand\(ctx, container\)/);
     assert.match(patchedDefinitions, /command: "addmodel"/);
     assert.match(patchedDefinitions, /"addmodel",/);
     const second = spawnSync(process.execPath, ["scripts/patch-telegram-bot.mjs"], { env, encoding: "utf8" });
