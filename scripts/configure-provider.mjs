@@ -41,7 +41,7 @@ if (endpoint.username || endpoint.password) {
 }
 
 async function discoverModels() {
-  const baseURL = values.baseURL.replace(/\\/+$/, "");
+  const baseURL = values.baseURL.replace(/\/+$/, "");
   let response;
   try {
     response = await fetch(`${baseURL}/models`, {
@@ -98,7 +98,7 @@ config.provider[values.id] = {
   npm: "@ai-sdk/openai-compatible",
   name: values.name || values.id,
   options: {
-    baseURL: values.baseURL.replace(/\\/+$/, ""),
+    baseURL: values.baseURL.replace(/\/+$/, ""),
     apiKey: "{env:AI_PROVIDER_API_KEY}",
   },
   models,
