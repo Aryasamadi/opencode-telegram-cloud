@@ -48,7 +48,9 @@ The checkpoint preserves:
 
 - OpenCode user data under `~/.local/share/opencode` (including its SQLite
   database and session records)
-- OpenCode configuration under `~/.config/opencode`
+- OpenCode configuration under `~/.config/opencode`, excluding the ephemeral
+  `service.json` file (it can contain a stale runner PID/password)
+- OpenCode model-selection metadata under `~/.local/state/opencode/model.json`
 - Telegram bot settings, including its current project/session selection
 - User workspaces under `~/projects`
 
@@ -65,9 +67,11 @@ re-injecting an exported transcript. OpenCode may still include relevant prior
 messages in normal model requests and may compact context; session recovery
 does not remove ordinary model context/token use.
 
-The project path is kept stable at `/home/runner/projects` across hosted
-Ubuntu jobs. If the project data is not included in the checkpoint, its
-session may be listed but its working directory will not be complete.
+Project files under `/home/runner/projects` are included in the snapshot.
+The workflow's own GitHub checkout directory is refreshed by checkout rather
+than restored as a user workspace; uncommitted edits made there are not part of
+the checkpoint. A session can still exist in the OpenCode database even when
+its corresponding external workspace files are absent.
 
 ## Deliberate limits
 
