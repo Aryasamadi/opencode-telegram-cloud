@@ -17,7 +17,9 @@ jobs:
     timeout-minutes: 360
     env:
       XDG_DATA_HOME: /home/runner/.local/share
+      XDG_STATE_HOME: /home/runner/.local/state
       XDG_CONFIG_HOME: /home/runner/.config
+      OPENCODE_TELEGRAM_HOME: /home/runner/.config/opencode-telegram-bot
 
     steps:
       - name: Checkout cloud controller
@@ -64,7 +66,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$HOME/projects" "$HOME/.local/share/opencode" \
+          mkdir -p "$HOME/projects" "$HOME/.local/share/opencode" "$HOME/.local/state/opencode" \
             "$HOME/.config/opencode" "$HOME/.config/opencode-telegram-bot"
           node scripts/state.mjs self-test
           node scripts/state.mjs restore
