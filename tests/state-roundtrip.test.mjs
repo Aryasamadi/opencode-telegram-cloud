@@ -12,16 +12,13 @@ test("encrypted checkpoint restores OpenCode DB, bot session selection, model st
   const root = await mkdtemp(path.join(os.tmpdir(), "opencode-state-roundtrip-"));
   const workspace = path.join(root, "repository");
   const sourceHome = path.join(root, "source-home");
-  const restoredHome = path.join(root, "restored-home");
+  const restoredHome = sourceHome;
   const dbPath = path.join(sourceHome, ".local/share/opencode/opencode.db");
   const settingsPath = path.join(sourceHome, ".config/opencode-telegram-bot/settings.json");
   const modelPath = path.join(sourceHome, ".local/state/opencode/model.json");
   const staleServicePath = path.join(sourceHome, ".config/opencode/service.json");
   const projectFile = path.join(sourceHome, "projects/demo/main.py");
-  const databaseFixture = Buffer.concat([
-    Buffer.from("SQLite format 3\0"),
-    Buffer.from("test session database payload"),
-  ]);
+  let databaseFixture;
   const settingsFixture = {
     currentProject: { directory: path.join(sourceHome, "projects/demo") },
     currentSession: { id: "ses_persistent_test", title: "Persistent session" },
@@ -37,8 +34,18 @@ test("encrypted checkpoint restores OpenCode DB, bot session selection, model st
       mkdir(path.dirname(projectFile), { recursive: true }),
       mkdir(path.join(workspace, ".state"), { recursive: true }),
     ]);
+    const createDatabase = spawnSync("python3", ["-c", [
+      "import sqlite3, sys",
+      "db = sqlite3.connect(sys.argv[1])",
+      "db.execute('CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT NOT NULL)')",
+      "db.execute('INSERT INTO session (id, title) VALUES (?, ?)', ('ses_persistent_test', 'Persistent session'))",
+      "db.commit()",
+      "db.close()",
+    ].join("\n"), dbPath], { encoding: "utf8" });
+    assert.equal(createDatabase.status, 0, createDatabase.stderr);
+    databaseFixture = await readFile(dbPath);
+
     await Promise.all([
-      writeFile(dbPath, databaseFixture),
       writeFile(settingsPath, JSON.stringify(settingsFixture)),
       writeFile(modelPath, JSON.stringify(modelFixture)),
       writeFile(staleServicePath, JSON.stringify({ password: "old-runner-secret", pid: 1234 })),
@@ -65,6 +72,10 @@ test("encrypted checkpoint restores OpenCode DB, bot session selection, model st
     assert.equal(encryptedCheckpoint.includes(Buffer.from("SQLite format 3")), false);
     assert.equal(encryptedCheckpoint.includes(Buffer.from(token)), false);
 
+    // Simulate a fresh GitHub runner with the same stable HOME path.
+    await rm(sourceHome, { recursive: true, force: true });
+    await mkdir(sourceHome, { recursive: true });
+
     const restore = spawnSync(process.execPath, [script, "restore"], {
       env: { ...baseEnv, HOME: restoredHome, OPENCODE_TELEGRAM_HOME: path.join(restoredHome, ".config/opencode-telegram-bot") },
       encoding: "utf8",
@@ -72,7 +83,13 @@ test("encrypted checkpoint restores OpenCode DB, bot session selection, model st
     });
     assert.equal(restore.status, 0, restore.stderr || restore.stdout);
 
-    assert.deepEqual(await readFile(path.join(restoredHome, ".local/share/opencode/opencode.db")), databaseFixture);
+    const restoredDatabasePath = path.join(restoredHome, ".local/share/opencode/opencode.db");
+    assert.deepEqual(await readFile(restoredDatabasePath), databaseFixture);
+    const verifySession = spawnSync("python3", ["-c",
+      "import sqlite3, sys; db=sqlite3.connect(sys.argv[1]); row=db.execute('SELECT id, title FROM session').fetchone(); print('|'.join(row)); db.close()",
+      restoredDatabasePath], { encoding: "utf8" });
+    assert.equal(verifySession.status, 0, verifySession.stderr);
+    assert.equal(verifySession.stdout.trim(), "ses_persistent_test|Persistent session");
     assert.deepEqual(
       JSON.parse(await readFile(path.join(restoredHome, ".config/opencode-telegram-bot/settings.json"), "utf8")),
       settingsFixture,
