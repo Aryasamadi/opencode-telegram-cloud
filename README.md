@@ -41,20 +41,27 @@ You can use any provider that offers an OpenAI-compatible
 | `AI_MODEL_ID` | Exact model ID required by that provider |
 | `AI_MODEL_NAME` | Friendly model name |
 
-The four required values are `AI_PROVIDER_ID`, `AI_BASE_URL`,
-`AI_PROVIDER_API_KEY`, and `AI_MODEL_ID`. The two display-name values are
-optional. If no custom-provider values are supplied, the workflow keeps the
-default OpenCode provider/model selection.
+The three required values are `AI_PROVIDER_ID`, `AI_BASE_URL`, and
+`AI_PROVIDER_API_KEY`. `AI_MODEL_ID` is optional: when omitted, the setup
+queries the provider's OpenAI-compatible `/models` endpoint and registers the
+returned model IDs. If the endpoint cannot return a usable model list, provide
+`AI_MODEL_ID`. The two display-name values are optional.
 
-The workflow generates a temporary OpenCode config under the runner's temp
-directory. The config refers to the key as `{env:AI_PROVIDER_API_KEY}`; the
-actual key is injected only into the OpenCode server process from Actions
-Secrets. It is not stored in the encrypted state archive or Git history.
+The provider is merged into the persistent `~/.config/opencode/opencode.json`
+after the encrypted checkpoint is restored. Existing OpenCode settings and
+other providers are preserved. The API key itself is never written to the
+config; it is referenced as `{env:AI_PROVIDER_API_KEY}` and supplied only to
+the OpenCode server process. The config is included in the encrypted
+checkpoint, so the provider remains available on later runner sessions.
 
-This built-in helper currently targets OpenAI-compatible Chat Completions
-providers. Providers that require Anthropic Messages, OpenAI Responses, custom
-headers, or a special SDK adapter may need a provider-specific configuration
-instead. OpenCode supports 75+ providers and custom endpoints; see
+After startup, the upstream bot's existing `/models` → `Providers` menu reads
+the provider catalog from OpenCode. No parallel model picker or custom
+provider menu is added.
+
+This setup helper targets OpenAI-compatible `/models` discovery and Chat
+Completions-compatible providers. Providers that require Anthropic Messages,
+OpenAI Responses, custom headers, or a special SDK adapter need a
+provider-specific configuration instead. OpenCode supports 75+ providers and custom endpoints; see
 https://opencode.ai/docs/providers/.
 
 ## Optional OpenCode-hosted provider
