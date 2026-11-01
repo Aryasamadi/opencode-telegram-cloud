@@ -114,20 +114,20 @@ async function inspectRuntimeState(home, label) {
     hasCurrentProject = Boolean(settings.currentProject);
   } catch (error) {
     if (error?.code !== "ENOENT") {
-      throw new Error(\`Telegram bot settings are unreadable at \${settingsPath}; refusing to claim session continuity.\`);
+      throw new Error(`Telegram bot settings are unreadable at \${settingsPath}; refusing to claim session continuity.`);
     }
   }
 
   process.stdout.write(
-    \`\${label}: OpenCode database \${databaseBytes === null ? "MISSING" : \`present (\${databaseBytes} bytes)\`}; \` +
-    \`bot settings \${settingsExists ? "present" : "not created"}; \` +
-    \`current session \${hasCurrentSession ? "selected" : "none"}; \` +
-    \`current project \${hasCurrentProject ? "selected" : "none"}\n\`,
+    `\${label}: OpenCode database \${databaseBytes === null ? "MISSING" : `present (\${databaseBytes} bytes)`}; ` +
+    `bot settings \${settingsExists ? "present" : "not created"}; ` +
+    `current session \${hasCurrentSession ? "selected" : "none"}; ` +
+    `current project \${hasCurrentProject ? "selected" : "none"}\n`,
   );
 
   if (hasCurrentSession && databaseBytes === null) {
     throw new Error(
-      \`A Telegram session is selected but the OpenCode database is missing at \${databasePath}. \` +
+      `A Telegram session is selected but the OpenCode database is missing at \${databasePath}. ` +
       "Checkpoint aborted to avoid losing the session.",
     );
   }
@@ -141,7 +141,7 @@ async function save() {
 
   const botHome = getBotHome(home);
   const botHomeRelative = path.relative(home, botHome);
-  if (botHomeRelative === ".." || botHomeRelative.startsWith(\`..\${path.sep}\`) || path.isAbsolute(botHomeRelative)) {
+  if (botHomeRelative === ".." || botHomeRelative.startsWith(`..\${path.sep}`) || path.isAbsolute(botHomeRelative)) {
     throw new Error("OPENCODE_TELEGRAM_HOME must be inside HOME so its settings can be checkpointed.");
   }
 
@@ -169,11 +169,11 @@ async function save() {
     ? path.resolve(process.env.OPENCODE_DB)
     : path.join(home, ".local", "share", "opencode", "opencode.db");
   const databaseRelative = path.relative(home, databasePath);
-  if (databaseRelative === ".." || databaseRelative.startsWith(\`..\${path.sep}\`) || path.isAbsolute(databaseRelative)) {
+  if (databaseRelative === ".." || databaseRelative.startsWith(`..\${path.sep}`) || path.isAbsolute(databaseRelative)) {
     throw new Error("OPENCODE_DB must be inside HOME so the session database can be checkpointed.");
   }
   const databaseCovered = included.some((entry) =>
-    databaseRelative === entry || databaseRelative.startsWith(\`\${entry}\${path.sep}\`),
+    databaseRelative === entry || databaseRelative.startsWith(`\${entry}\${path.sep}`),
   );
   if (!databaseCovered) {
     try {
