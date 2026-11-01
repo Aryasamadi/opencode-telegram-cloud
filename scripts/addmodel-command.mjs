@@ -29,7 +29,8 @@ export async function addModelCommand(ctx) {
   try {
     await ctx.api.deleteMessage(chatId, message.message_id);
   } catch {
-    // Continue only for the authorized bot chat; never echo the submitted command.
+    await ctx.reply("❌ I could not delete the submitted command, so no provider was added. Please delete that message manually and try again.");
+    return;
   }
 
   if (!values) {
