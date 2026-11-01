@@ -16,6 +16,7 @@ test("encrypted checkpoint restores OpenCode DB, bot session selection, model st
   const dbPath = path.join(sourceHome, ".local/share/opencode/opencode.db");
   const settingsPath = path.join(sourceHome, ".config/opencode-telegram-bot/settings.json");
   const modelPath = path.join(sourceHome, ".local/state/opencode/model.json");
+  const staleServicePath = path.join(sourceHome, ".config/opencode/service.json");
   const projectFile = path.join(sourceHome, "projects/demo/main.py");
   const databaseFixture = Buffer.concat([
     Buffer.from("SQLite format 3\0"),
@@ -32,6 +33,7 @@ test("encrypted checkpoint restores OpenCode DB, bot session selection, model st
       mkdir(path.dirname(dbPath), { recursive: true }),
       mkdir(path.dirname(settingsPath), { recursive: true }),
       mkdir(path.dirname(modelPath), { recursive: true }),
+      mkdir(path.dirname(staleServicePath), { recursive: true }),
       mkdir(path.dirname(projectFile), { recursive: true }),
       mkdir(path.join(workspace, ".state"), { recursive: true }),
     ]);
@@ -39,6 +41,7 @@ test("encrypted checkpoint restores OpenCode DB, bot session selection, model st
       writeFile(dbPath, databaseFixture),
       writeFile(settingsPath, JSON.stringify(settingsFixture)),
       writeFile(modelPath, JSON.stringify(modelFixture)),
+      writeFile(staleServicePath, JSON.stringify({ password: "old-runner-secret", pid: 1234 })),
       writeFile(projectFile, "print('checkpointed workspace')\n"),
     ]);
 
@@ -78,6 +81,7 @@ test("encrypted checkpoint restores OpenCode DB, bot session selection, model st
       JSON.parse(await readFile(path.join(restoredHome, ".local/state/opencode/model.json"), "utf8")),
       modelFixture,
     );
+    await assert.rejects(readFile(path.join(restoredHome, ".config/opencode/service.json")), { code: "ENOENT" });
     assert.equal(
       await readFile(path.join(restoredHome, "projects/demo/main.py"), "utf8"),
       "print('checkpointed workspace')\n",
