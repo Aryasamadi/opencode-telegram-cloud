@@ -30,6 +30,16 @@ test("provider manager adds, lists, and removes providers without losing existin
     assert.equal(config.provider["test-provider"].options.apiKey, "test-secret");
     assert.ok(config.provider["test-provider"].models["test-model"]);
 
+    const duplicate = spawnSync(process.execPath, [script, "add", "--id", "test-provider",
+      "--name", "Replacement", "--base-url", "https://other.example.test/v1",
+      "--api-key", "replacement-secret", "--model-id", "replacement-model"], { env, encoding: "utf8" });
+    assert.notEqual(duplicate.status, 0);
+    assert.match(duplicate.stderr, /already exists/);
+    assert.doesNotMatch(duplicate.stderr + duplicate.stdout, /replacement-secret/);
+    config = JSON.parse(await readFile(configFile, "utf8"));
+    assert.equal(config.provider["test-provider"].options.apiKey, "test-secret");
+    assert.equal(config.provider["test-provider"].models["test-model"].name, "test-model");
+
     const list = spawnSync(process.execPath, [script, "list"], { env, encoding: "utf8" });
     assert.equal(list.status, 0, list.stderr);
     assert.match(list.stdout, /test-provider.*test-model/);
