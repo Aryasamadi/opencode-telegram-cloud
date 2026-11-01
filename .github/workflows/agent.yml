@@ -123,7 +123,7 @@ jobs:
           BOT_PID=$!
           (
             sleep 325m
-            kill -INT "$BOT_PID" 2>/dev/null || true
+            kill -TERM "$BOT_PID" 2>/dev/null || true
           ) &
           TIMER_PID=$!
 
