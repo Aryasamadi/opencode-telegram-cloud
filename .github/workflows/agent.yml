@@ -14,7 +14,7 @@ jobs:
   agent:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 355
+    timeout-minutes: 360
     env:
       XDG_DATA_HOME: /home/runner/.local/share
       XDG_CONFIG_HOME: /home/runner/.config
@@ -68,8 +68,23 @@ jobs:
           node scripts/state.mjs self-test
           node scripts/state.mjs restore
 
+      - name: Configure optional custom AI provider
+        env:
+          AI_PROVIDER_ID: ${{ secrets.AI_PROVIDER_ID }}
+          AI_PROVIDER_NAME: ${{ secrets.AI_PROVIDER_NAME }}
+          AI_BASE_URL: ${{ secrets.AI_BASE_URL }}
+          AI_PROVIDER_API_KEY: ${{ secrets.AI_PROVIDER_API_KEY }}
+          AI_MODEL_ID: ${{ secrets.AI_MODEL_ID }}
+          AI_MODEL_NAME: ${{ secrets.AI_MODEL_NAME }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/configure-provider.mjs
+
       - name: Start isolated OpenCode V2 server
         id: start_opencode
+        env:
+          AI_PROVIDER_API_KEY: ${{ secrets.AI_PROVIDER_API_KEY }}
         shell: bash
         run: |
           set -euo pipefail
@@ -101,7 +116,7 @@ jobs:
           echo "::error::OpenCode server health check timed out."
           exit 1
 
-      - name: Run Telegram bot (maximum 5h 25m)
+      - name: Run Telegram bot (maximum 5h 55m)
         id: run_bot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -110,8 +125,8 @@ jobs:
           OPENCODE_SERVER_VERSION: v2
           OPENCODE_API_URL: http://127.0.0.1:49374
           OPENCODE_SERVER_USERNAME: opencode
-          OPENCODE_MODEL_PROVIDER: opencode
-          OPENCODE_MODEL_ID: big-pickle
+          OPENCODE_MODEL_PROVIDER: ${{ secrets.AI_PROVIDER_ID || 'opencode' }}
+          OPENCODE_MODEL_ID: ${{ secrets.AI_MODEL_ID || 'big-pickle' }}
           OPENCODE_TELEGRAM_HOME: /home/runner/.config/opencode-telegram-bot
           OPEN_BROWSER_ROOTS: /home/runner/projects
           BOT_HEALTH_PORT: "0"
@@ -121,7 +136,7 @@ jobs:
         run: |
           set -euo pipefail
           set +e
-          timeout --signal=TERM --kill-after=30s 325m opencode-telegram start
+          timeout --signal=TERM --kill-after=30s 355m opencode-telegram start
           BOT_STATUS=$?
           set -e
 
