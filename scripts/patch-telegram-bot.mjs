@@ -3,9 +3,13 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-const rootResult = spawnSync("npm", ["root", "-g"], { encoding: "utf8" });
-if (rootResult.status !== 0) throw new Error("Could not locate global npm package directory.");
-const packageRoot = path.join(rootResult.stdout.trim(), "@grinev", "opencode-telegram-bot", "dist");
+const packageRoot = process.env.OPENCODE_TELEGRAM_DIST
+  ? path.resolve(process.env.OPENCODE_TELEGRAM_DIST)
+  : (() => {
+      const rootResult = spawnSync("npm", ["root", "-g"], { encoding: "utf8" });
+      if (rootResult.status !== 0) throw new Error("Could not locate global npm package directory.");
+      return path.join(rootResult.stdout.trim(), "@grinev", "opencode-telegram-bot", "dist");
+    })();
 const routerPath = path.join(packageRoot, "bot", "routers", "command-router.js");
 const definitionsPath = path.join(packageRoot, "bot", "commands", "definitions.js");
 
