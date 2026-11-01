@@ -89,7 +89,8 @@ async function addProvider(options) {
   const id = required(options, "id");
   const name = options.name?.trim() || id;
   const baseURL = required(options, "base-url").replace(/\/+$/, "");
-  const apiKey = required(options, "api-key");
+  const apiKey = options["api-key"]?.trim() || process.env.AI_PROVIDER_API_KEY;
+  if (!apiKey) throw new Error("Missing provider API key.");
   const explicitModel = options["model-id"]?.trim();
   validateId(id);
   let url;
