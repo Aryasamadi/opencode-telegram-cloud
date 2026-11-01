@@ -128,6 +128,7 @@ jobs:
           OPENCODE_SERVER_VERSION: v2
           OPENCODE_API_URL: http://127.0.0.1:49374
           OPENCODE_SERVER_USERNAME: opencode
+          OPENCODE_AUTO_RESTART_ENABLED: "false"
           OPENCODE_TELEGRAM_HOME: /home/runner/.config/opencode-telegram-bot
           OPEN_BROWSER_ROOTS: /home/runner/projects
           BOT_HEALTH_PORT: "0"
