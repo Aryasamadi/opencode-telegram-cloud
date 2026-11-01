@@ -86,16 +86,36 @@ function runTar(args) {
   execFileSync("tar", args, { stdio: "inherit" });
 }
 
+function getXdgHome(home, variable, ...fallbackParts) {
+  return path.resolve(process.env[variable] || path.join(home, ...fallbackParts));
+}
+
 function getBotHome(home) {
   const configured = process.env.OPENCODE_TELEGRAM_HOME?.trim();
-  const xdgConfigHome = process.env.XDG_CONFIG_HOME || path.join(home, ".config");
-  return path.resolve(configured || path.join(xdgConfigHome, "opencode-telegram-bot"));
+  return path.resolve(configured || path.join(getXdgHome(home, "XDG_CONFIG_HOME", ".config"), "opencode-telegram-bot"));
+}
+
+function getDatabasePath(home) {
+  const dataHome = getXdgHome(home, "XDG_DATA_HOME", ".local", "share");
+  return process.env.OPENCODE_DB
+    ? path.resolve(process.env.OPENCODE_DB)
+    : path.join(dataHome, "opencode", "opencode.db");
+}
+
+function getHomeRelativePath(home, absolutePath, label) {
+  const relativePath = path.relative(home, absolutePath);
+  if (
+    relativePath === ".." ||
+    relativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativePath)
+  ) {
+    throw new Error(`${label} must be inside HOME so it can be checkpointed.`);
+  }
+  return relativePath || ".";
 }
 
 async function inspectRuntimeState(home, label) {
-  const databasePath = process.env.OPENCODE_DB
-    ? path.resolve(process.env.OPENCODE_DB)
-    : path.join(home, ".local", "share", "opencode", "opencode.db");
+  const databasePath = getDatabasePath(home);
   let databaseBytes = null;
   try {
     databaseBytes = (await stat(databasePath)).size;
@@ -139,16 +159,27 @@ async function save() {
   const home = process.env.HOME;
   if (!home) throw new Error("HOME is not set.");
 
-  const botHome = getBotHome(home);
-  const botHomeRelative = path.relative(home, botHome);
-  if (botHomeRelative === ".." || botHomeRelative.startsWith(`..${path.sep}`) || path.isAbsolute(botHomeRelative)) {
-    throw new Error("OPENCODE_TELEGRAM_HOME must be inside HOME so its settings can be checkpointed.");
-  }
+  const botHomeRelative = getHomeRelativePath(home, getBotHome(home), "OPENCODE_TELEGRAM_HOME");
+  const configHomeRelative = getHomeRelativePath(
+    home,
+    getXdgHome(home, "XDG_CONFIG_HOME", ".config"),
+    "XDG_CONFIG_HOME",
+  );
+  const dataHomeRelative = getHomeRelativePath(
+    home,
+    getXdgHome(home, "XDG_DATA_HOME", ".local", "share"),
+    "XDG_DATA_HOME",
+  );
+  const stateHomeRelative = getHomeRelativePath(
+    home,
+    getXdgHome(home, "XDG_STATE_HOME", ".local", "state"),
+    "XDG_STATE_HOME",
+  );
 
   const candidates = [
-    ".local/share/opencode",
-    ".local/state/opencode/model.json",
-    ".config/opencode",
+    path.join(dataHomeRelative, "opencode"),
+    path.join(stateHomeRelative, "opencode", "model.json"),
+    path.join(configHomeRelative, "opencode"),
     path.join(botHomeRelative, "settings.json"),
     path.join(botHomeRelative, "settings.json.bak"),
     path.join(botHomeRelative, "local-commands"),
@@ -165,13 +196,8 @@ async function save() {
     }
   }
 
-  const databasePath = process.env.OPENCODE_DB
-    ? path.resolve(process.env.OPENCODE_DB)
-    : path.join(home, ".local", "share", "opencode", "opencode.db");
-  const databaseRelative = path.relative(home, databasePath);
-  if (databaseRelative === ".." || databaseRelative.startsWith(`..${path.sep}`) || path.isAbsolute(databaseRelative)) {
-    throw new Error("OPENCODE_DB must be inside HOME so the session database can be checkpointed.");
-  }
+  const databasePath = getDatabasePath(home);
+  const databaseRelative = getHomeRelativePath(home, databasePath, "OpenCode database");
   const databaseCovered = included.some((entry) =>
     databaseRelative === entry || databaseRelative.startsWith(`${entry}${path.sep}`),
   );
@@ -203,7 +229,7 @@ async function save() {
       archivePath,
       "--directory",
       home,
-      "--exclude=.config/opencode/service.json",
+      `--exclude=${path.join(configHomeRelative, "opencode", "service.json")}`,
       "--exclude=node_modules",
       "--exclude=.venv",
       "--exclude=venv",
@@ -276,7 +302,10 @@ async function restore() {
       "--no-same-permissions",
     ]);
     // This file can contain a previous runner's PID/password and is never reusable.
-    await rm(path.join(home, ".config", "opencode", "service.json"), { force: true });
+    await rm(
+      path.join(getXdgHome(home, "XDG_CONFIG_HOME", ".config"), "opencode", "service.json"),
+      { force: true },
+    );
     await inspectRuntimeState(home, "After restore");
     process.stdout.write(
       "Previous OpenCode database, sessions, model state, bot settings, and workspaces restored.\n",
