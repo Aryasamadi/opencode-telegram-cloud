@@ -25,14 +25,30 @@ async function patchFile(file, transform, label) {
 
 const handlerUrl = pathToFileURL(path.resolve("scripts/addmodel-command.mjs")).href;
 const routerChanged = await patchFile(routerPath, (source) => {
-  if (source.includes("addModelCommand")) return source;
-  const anchor = 'bot.command("mcps", (ctx) => mcpsCommand(ctx, container));';
-  if (!source.includes(anchor)) throw new Error("Upstream command-router registration anchor changed; refusing to patch.");
-  const importAnchor = 'import { mcpsCommand } from "../commands/mcp-catalog-command.js";';
-  if (!source.includes(importAnchor)) throw new Error("Upstream command-router import anchor changed; refusing to patch.");
-  return source
-    .replace(importAnchor, importAnchor + `\nimport { addModelCommand } from ${JSON.stringify(handlerUrl)};`)
-    .replace(anchor, anchor + '\nbot.command("addmodel", (ctx) => addModelCommand(ctx));');
+  let updated = source;
+  if (!updated.includes("addModelCommand")) {
+    const anchor = 'bot.command("mcps", (ctx) => mcpsCommand(ctx, container));';
+    if (!updated.includes(anchor)) throw new Error("Upstream command-router registration anchor changed; refusing to patch.");
+    const importAnchor = 'import { mcpsCommand } from "../commands/mcp-catalog-command.js";';
+    if (!updated.includes(importAnchor)) throw new Error("Upstream command-router import anchor changed; refusing to patch.");
+    updated = updated
+      .replace(importAnchor, importAnchor + "\nimport { addModelCommand } from " + JSON.stringify(handlerUrl) + ";")
+      .replace(anchor, anchor + '\nbot.command("addmodel", (ctx) => addModelCommand(ctx));');
+  }
+
+  const lifecycleMessage = "The OpenCode server is managed by this GitHub Actions run. Do not start or stop it from Telegram; end the workflow to shut it down safely.";
+  const startAnchor = 'bot.command("opencode_start", (ctx) => opencodeStartCommand(ctx, container));';
+  const stopAnchor = 'bot.command("opencode_stop", (ctx) => opencodeStopCommand(ctx, container));';
+  const guardedStart = 'bot.command("opencode_start", (ctx) => ctx.reply(' + JSON.stringify(lifecycleMessage) + '));';
+  const guardedStop = 'bot.command("opencode_stop", (ctx) => ctx.reply(' + JSON.stringify(lifecycleMessage) + '));';
+
+  if (updated.includes(startAnchor)) updated = updated.replace(startAnchor, guardedStart);
+  else if (!updated.includes(guardedStart)) throw new Error("Upstream /opencode_start route changed; refusing to patch lifecycle guard.");
+
+  if (updated.includes(stopAnchor)) updated = updated.replace(stopAnchor, guardedStop);
+  else if (!updated.includes(guardedStop)) throw new Error("Upstream /opencode_stop route changed; refusing to patch lifecycle guard.");
+
+  return updated;
 }, "command router");
 
 const definitionsChanged = await patchFile(definitionsPath, (source) => {
