@@ -56,6 +56,7 @@ test("encrypted checkpoint restores OpenCode DB, bot session selection, model st
       ...process.env,
       TELEGRAM_BOT_TOKEN: token,
       GITHUB_WORKSPACE: workspace,
+      XDG_DATA_HOME: path.join(sourceHome, ".local/share"),
       XDG_CONFIG_HOME: path.join(sourceHome, ".config"),
       XDG_STATE_HOME: path.join(sourceHome, ".local/state"),
       OPENCODE_TELEGRAM_HOME: path.join(sourceHome, ".config/opencode-telegram-bot"),
