@@ -104,16 +104,7 @@ config.provider[values.id] = {
   models,
 };
 
-if (!config.model || values.modelID) {
-  config.model = `${values.id}/${modelIDs[0]}`;
-}
-
 await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
-if (process.env.GITHUB_ENV) {
-  await writeFile(process.env.GITHUB_ENV,
-    `OPENCODE_MODEL_PROVIDER=${values.id}\nOPENCODE_MODEL_ID=${modelIDs[0]}\n`,
-    { flag: "a", mode: 0o600 });
-}
 process.stdout.write(
   `Provider ${values.id} registered in persistent OpenCode config with ${modelIDs.length} model(s). API key is referenced through AI_PROVIDER_API_KEY and is not written to disk.\n`,
 );
