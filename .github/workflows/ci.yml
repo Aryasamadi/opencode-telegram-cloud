@@ -27,6 +27,8 @@ jobs:
         run: |
           node --check scripts/state.mjs
           node --check scripts/configure-provider.mjs
+          node --check scripts/provider-manager.mjs
+          node --test tests/provider-manager.test.mjs
           node scripts/state.mjs self-test
 
       - name: Test custom provider config generation (dummy credentials only)
