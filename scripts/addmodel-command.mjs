@@ -133,5 +133,5 @@ export async function addModelCommand(ctx) {
     .replaceAll(values.apiKey, "[redacted]")
     .replaceAll(values.baseURL, "[provider endpoint]")
     .slice(0, 1800);
-  await ctx.reply(`✅ ${safeOutput}\n\nNow run /reload, then open /models → Providers.`);
+  await ctx.reply(`✅ ${safeOutput}\n\nOpen the model picker and tap 🗂 Providers; the list refreshes automatically.`);
 }
