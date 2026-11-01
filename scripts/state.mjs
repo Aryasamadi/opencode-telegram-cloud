@@ -86,18 +86,72 @@ function runTar(args) {
   execFileSync("tar", args, { stdio: "inherit" });
 }
 
+function getBotHome(home) {
+  const configured = process.env.OPENCODE_TELEGRAM_HOME?.trim();
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME || path.join(home, ".config");
+  return path.resolve(configured || path.join(xdgConfigHome, "opencode-telegram-bot"));
+}
+
+async function inspectRuntimeState(home, label) {
+  const databasePath = process.env.OPENCODE_DB
+    ? path.resolve(process.env.OPENCODE_DB)
+    : path.join(home, ".local", "share", "opencode", "opencode.db");
+  let databaseBytes = null;
+  try {
+    databaseBytes = (await stat(databasePath)).size;
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+
+  const settingsPath = path.join(getBotHome(home), "settings.json");
+  let hasCurrentSession = false;
+  let hasCurrentProject = false;
+  let settingsExists = false;
+  try {
+    const settings = JSON.parse(await readFile(settingsPath, "utf8"));
+    settingsExists = true;
+    hasCurrentSession = Boolean(settings.currentSession);
+    hasCurrentProject = Boolean(settings.currentProject);
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      throw new Error(\`Telegram bot settings are unreadable at \${settingsPath}; refusing to claim session continuity.\`);
+    }
+  }
+
+  process.stdout.write(
+    \`\${label}: OpenCode database \${databaseBytes === null ? "MISSING" : \`present (\${databaseBytes} bytes)\`}; \` +
+    \`bot settings \${settingsExists ? "present" : "not created"}; \` +
+    \`current session \${hasCurrentSession ? "selected" : "none"}; \` +
+    \`current project \${hasCurrentProject ? "selected" : "none"}\n\`,
+  );
+
+  if (hasCurrentSession && databaseBytes === null) {
+    throw new Error(
+      \`A Telegram session is selected but the OpenCode database is missing at \${databasePath}. \` +
+      "Checkpoint aborted to avoid losing the session.",
+    );
+  }
+}
+
 async function save() {
   const token = getToken();
   const root = process.env.GITHUB_WORKSPACE || process.cwd();
   const home = process.env.HOME;
   if (!home) throw new Error("HOME is not set.");
 
+  const botHome = getBotHome(home);
+  const botHomeRelative = path.relative(home, botHome);
+  if (botHomeRelative === ".." || botHomeRelative.startsWith(\`..\${path.sep}\`) || path.isAbsolute(botHomeRelative)) {
+    throw new Error("OPENCODE_TELEGRAM_HOME must be inside HOME so its settings can be checkpointed.");
+  }
+
   const candidates = [
     ".local/share/opencode",
+    ".local/state/opencode/model.json",
     ".config/opencode",
-    ".config/opencode-telegram-bot/settings.json",
-    ".config/opencode-telegram-bot/settings.json.bak",
-    ".config/opencode-telegram-bot/local-commands",
+    path.join(botHomeRelative, "settings.json"),
+    path.join(botHomeRelative, "settings.json.bak"),
+    path.join(botHomeRelative, "local-commands"),
     "projects",
   ];
   const included = [];
@@ -111,11 +165,31 @@ async function save() {
     }
   }
 
+  const databasePath = process.env.OPENCODE_DB
+    ? path.resolve(process.env.OPENCODE_DB)
+    : path.join(home, ".local", "share", "opencode", "opencode.db");
+  const databaseRelative = path.relative(home, databasePath);
+  if (databaseRelative === ".." || databaseRelative.startsWith(\`..\${path.sep}\`) || path.isAbsolute(databaseRelative)) {
+    throw new Error("OPENCODE_DB must be inside HOME so the session database can be checkpointed.");
+  }
+  const databaseCovered = included.some((entry) =>
+    databaseRelative === entry || databaseRelative.startsWith(\`\${entry}\${path.sep}\`),
+  );
+  if (!databaseCovered) {
+    try {
+      await stat(databasePath);
+      included.push(databaseRelative);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+
   if (included.length === 0) {
     throw new Error(
       "No OpenCode, bot, or project state was found to checkpoint.",
     );
   }
+  await inspectRuntimeState(home, "Before checkpoint");
 
   const temp = await mkdtemp(path.join(tmpdir(), "oct-state-"));
   const archivePath = path.join(temp, "state.tar.gz");
@@ -200,8 +274,9 @@ async function restore() {
       "--no-same-owner",
       "--no-same-permissions",
     ]);
+    await inspectRuntimeState(home, "After restore");
     process.stdout.write(
-      "Previous OpenCode database, sessions, bot settings, and workspaces restored.\n",
+      "Previous OpenCode database, sessions, model state, bot settings, and workspaces restored.\n",
     );
   } finally {
     await rm(temp, { recursive: true, force: true });
