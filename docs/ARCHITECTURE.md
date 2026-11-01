@@ -4,11 +4,23 @@
 
 A manual `workflow_dispatch` starts one GitHub-hosted Ubuntu job. It restores
 the encrypted checkpoint, installs the current published OpenCode CLI and
-Telegram npm package, starts OpenCode V2 on loopback, and launches the bot.
+Telegram npm package, optionally configures a custom model provider, starts
+OpenCode V2 on loopback, and launches the bot.
 
 The server password is generated randomly for each job and passed to both
 processes as an environment variable. It is not stored in the repository or
 checkpoint.
+
+## Custom provider configuration
+
+When the four required `AI_*` secrets are present, the workflow creates a
+temporary OpenCode config with an OpenAI-compatible provider and model. The
+config uses `{env:AI_PROVIDER_API_KEY}` rather than embedding the key. The
+server receives the API key directly from GitHub Actions Secrets. The
+temporary config is under `RUNNER_TEMP`, not in the repository or checkpoint.
+
+The helper supports OpenAI-compatible Chat Completions endpoints. Other API
+protocols or provider-specific headers/adapters need a tailored configuration.
 
 ## Persistence boundary
 
@@ -39,11 +51,12 @@ session may be listed but its working directory will not be complete.
 
 ## Deliberate limits
 
-The workflow is manual-only, runs for approximately 5 hours 25 minutes, and
-then shuts down cleanly and checkpoints. It does not chain jobs indefinitely
-or promise continuous Telegram polling between jobs. The upstream bot starts
-polling with pending updates dropped, so messages sent during an offline gap
-may not be delivered to the next run.
+The bot runs for at most 355 minutes (5 hours 55 minutes); the enclosing job
+timeout is 360 minutes (6 hours) to leave a shutdown/checkpoint window. The
+workflow is manual-only and does not chain jobs indefinitely or promise
+continuous Telegram polling between jobs. The upstream bot starts polling
+with pending updates dropped, so messages sent during an offline gap may not
+be delivered to the next run.
 
 The encrypted checkpoint is limited to 95 MiB. A larger snapshot fails closed;
 it is not split or partially uploaded.
