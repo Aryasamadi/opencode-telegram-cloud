@@ -114,7 +114,7 @@ async function addProvider(options) {
     models,
   };
   await writeConfig(file, config);
-  process.stdout.write(`Registered provider "${id}" with ${modelIDs.length} model(s). Use /reload, then /models → Providers.\n`);
+  process.stdout.write(`Registered provider "${id}" with ${modelIDs.length} model(s). Open the model picker and tap Providers to refresh.\n`);
 }
 
 async function removeProvider(options) {
@@ -129,7 +129,7 @@ async function removeProvider(options) {
   delete config.provider[id];
   if (typeof config.model === "string" && config.model.startsWith(`${id}/`)) delete config.model;
   await writeConfig(file, config);
-  process.stdout.write(`Removed provider "${id}". Use /reload to refresh OpenCode.\n`);
+  process.stdout.write(`Removed provider "${id}". Open the model picker and tap Providers to refresh.\n`);
 }
 
 async function listProviders() {
