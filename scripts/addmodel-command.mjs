@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -5,18 +6,72 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MANAGER = path.join(ROOT, "scripts", "provider-manager.mjs");
 
-function parseCommand(text) {
-  const body = text.replace(/^\/addmodel(?:@\w+)?\s*/i, "");
-  const fields = body.split("|").map((part) => part.trim());
-  if (fields.length < 4 || fields.length > 5 || fields.some((part, index) => index < 4 && !part)) {
-    return null;
+function deriveProviderId(name) {
+  const slug = name.normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64)
+    .replace(/-+$/g, "");
+  return slug || `provider-${createHash("sha256").update(name).digest("hex").slice(0, 10)}`;
+}
+
+function parseQuotedFields(body) {
+  const fields = [];
+  let index = 0;
+
+  while (index < body.length) {
+    while (/\s/.test(body[index] ?? "")) index += 1;
+    if (index >= body.length) break;
+    if (body[index] !== '"') return null;
+
+    index += 1;
+    let value = "";
+    let closed = false;
+    while (index < body.length) {
+      const character = body[index];
+      if (character === "\\") {
+        const next = body[index + 1];
+        if (next === '"' || next === "\\") {
+          value += next;
+          index += 2;
+          continue;
+        }
+        value += character;
+        index += 1;
+        continue;
+      }
+      if (character === '"') {
+        closed = true;
+        index += 1;
+        break;
+      }
+      value += character;
+      index += 1;
+    }
+
+    if (!closed || !value.trim()) return null;
+    fields.push(value.trim());
+    if (fields.length > 4) return null;
   }
+
+  return fields.length === 4 ? fields : null;
+}
+
+export function parseCommand(text) {
+  const prefix = text.match(/^\/addmodel(?:@\w+)?(?:\s+|$)/i);
+  if (!prefix) return null;
+  const fields = parseQuotedFields(text.slice(prefix[0].length));
+  if (!fields) return null;
+
+  const [name, baseURL, modelID, apiKey] = fields;
   return {
-    id: fields[0],
-    name: fields[1],
-    baseURL: fields[2],
-    apiKey: fields[3],
-    modelID: fields[4] || "",
+    id: deriveProviderId(name),
+    name,
+    baseURL,
+    modelID,
+    apiKey,
   };
 }
 
@@ -35,7 +90,7 @@ export async function addModelCommand(ctx) {
 
   if (!values) {
     await ctx.reply(
-      "Format:\n/addmodel provider-id | Provider Name | https://api.example.com/v1 | API_KEY | optional-model-id\n\nThe model ID is optional when the provider exposes an OpenAI-compatible /models endpoint. Your submitted command is deleted after receipt.",
+      "Format:\n/addmodel \"Provider Name\" \"https://example.com/v1\" \"model-name\" \"API_KEY\"\n\nAll four quoted values are required. The provider ID is generated from the name. Your submitted command is deleted after receipt.",
     );
     return;
   }
@@ -46,7 +101,7 @@ export async function addModelCommand(ctx) {
     "--name", values.name,
     "--base-url", values.baseURL,
   ];
-  if (values.modelID) args.push("--model-id", values.modelID);
+  args.push("--model-id", values.modelID);
 
   await ctx.reply("⏳ Checking provider and registering its models…");
   const result = await new Promise((resolve) => {
