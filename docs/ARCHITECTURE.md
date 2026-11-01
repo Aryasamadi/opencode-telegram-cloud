@@ -25,6 +25,20 @@ runner, the provider config is restored before OpenCode starts. The upstream
 Telegram bot's existing `/models` → `Providers` menu reads this catalog
 directly; this controller does not create a parallel picker.
 
+## Telegram command adapter
+
+The runtime adapter patches the installed published package after `npm install`.
+It adds the exact four-quoted-argument form
+`/addmodel "Provider Name" "https://example.com/v1" "model-name" "API_KEY"`.
+The provider ID is generated from the provider name, and duplicate generated
+IDs are rejected rather than silently replacing an existing provider.
+
+CI downloads the actual latest npm tarball, applies the patch, and syntax-checks
+the patched distribution. The adapter fails closed if the upstream compiled
+command-router anchors change. It also replaces `/opencode_start` and
+`/opencode_stop` with a notice: GitHub Actions owns this runner's OpenCode
+server and its per-run random password, so Telegram commands must not restart
+or stop that process.
 ## Dynamic provider manager
 
 `scripts/provider-manager.mjs` provides the persistence layer for adding,
