@@ -1,8 +1,7 @@
 # OpenCode Telegram Cloud
 
 A GitHub Actions launcher for the **official** OpenCode CLI and the published
-`@grinev/opencode-telegram-bot` npm package. This repository is deployment
-glue only: it does not fork, patch, or vendor the upstream Telegram bot source.
+`@grinev/opencode-telegram-bot` npm package. This repository keeps the upstream Telegram bot package intact in the repository. At runner startup, a small version-checked adapter patches the installed package's compiled command router to add the provider command; it does not maintain a fork or modify upstream source files.
 
 ## What it does
 
@@ -63,6 +62,29 @@ Completions-compatible providers. Providers that require Anthropic Messages,
 OpenAI Responses, custom headers, or a special SDK adapter need a
 provider-specific configuration instead. OpenCode supports 75+ providers and custom endpoints; see
 https://opencode.ai/docs/providers/.
+
+## Add a provider from Telegram
+
+While the workflow is running, send the bot this command in its authorized
+private chat:
+
+```text
+/addmodel provider-id | Provider Name | https://api.example.com/v1 | API_KEY | optional-model-id
+```
+
+The model ID is optional when the provider exposes a compatible `/models`
+endpoint. The bot deletes the submitted Telegram message before processing it;
+if deletion fails, it aborts without registering the provider. The API key is
+passed to the provider manager through a process environment variable, stored
+in the runner's OpenCode config with owner-only file permissions, and included
+only inside the encrypted checkpoint at rest. Never post provider keys in a
+public group or channel.
+
+After a successful registration, send `/reload`, then use the existing
+`/models` → `Providers` menu to choose a model. No replacement model picker
+is added. Dynamic provider registration currently targets OpenAI-compatible
+Chat Completions endpoints. Providers with other protocols or custom auth
+requirements need a provider-specific adapter.
 
 ## Optional OpenCode-hosted provider
 
