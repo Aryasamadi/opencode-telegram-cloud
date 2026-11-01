@@ -43,7 +43,7 @@ jobs:
           ACTUAL="$(
             HOME="$RUNNER_TEMP/opencode-home" \
             XDG_DATA_HOME="$RUNNER_TEMP/opencode-data" \
-            "$OPENCODE" db path
+            "$OPENCODE" debug paths db
           )"
           EXPECTED="$RUNNER_TEMP/opencode-data/opencode/opencode.db"
           echo "OpenCode CLI database path: $ACTUAL"
