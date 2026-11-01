@@ -26,4 +26,15 @@ jobs:
       - name: Check JavaScript syntax and encryption
         run: |
           node --check scripts/state.mjs
+          node --check scripts/configure-provider.mjs
           node scripts/state.mjs self-test
+
+      - name: Test custom provider config generation (dummy credentials only)
+        env:
+          AI_PROVIDER_ID: test-provider
+          AI_PROVIDER_NAME: Test Provider
+          AI_BASE_URL: https://api.example.test/v1
+          AI_PROVIDER_API_KEY: dummy-test-key-not-a-real-credential
+          AI_MODEL_ID: test-model
+          AI_MODEL_NAME: Test Model
+        run: node scripts/configure-provider.mjs
