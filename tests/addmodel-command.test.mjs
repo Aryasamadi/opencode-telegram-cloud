@@ -17,7 +17,7 @@ test("parses the exact four quoted /addmodel arguments and derives provider ID",
 
 test("supports bot suffixes and escaped quotes inside values", () => {
   assert.deepEqual(
-    parseCommand('/addmodel@my_test_bot "Provider \"One\"" "https://example.com/v1" "model-name" "key-value"'),
+    parseCommand(String.raw`/addmodel@my_test_bot "Provider \"One\"" "https://example.com/v1" "model-name" "key-value"`),
     {
       id: "provider-one",
       name: 'Provider "One"',
