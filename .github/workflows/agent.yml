@@ -1,0 +1,187 @@
+name: OpenCode Telegram Cloud
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: opencode-telegram-cloud-agent
+  cancel-in-progress: false
+
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    env:
+      XDG_DATA_HOME: /home/runner/.local/share
+      XDG_CONFIG_HOME: /home/runner/.config
+
+    steps:
+      - name: Checkout cloud controller
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Validate required secrets
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALLOWED_USER_ID: ${{ secrets.TELEGRAM_ALLOWED_USER_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${TELEGRAM_BOT_TOKEN:-}" ]]; then
+            echo "::error::Missing repository secret TELEGRAM_BOT_TOKEN"
+            exit 1
+          fi
+          if [[ ! "${TELEGRAM_ALLOWED_USER_ID:-}" =~ ^[0-9]+$ ]]; then
+            echo "::error::TELEGRAM_ALLOWED_USER_ID must be a numeric Telegram user ID"
+            exit 1
+          fi
+
+      - name: Install latest published OpenCode and Telegram bot
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global @opencode/cli@latest @grinev/opencode-telegram-bot@latest
+          opencode --version
+          opencode-telegram --help
+
+      - name: Verify encryption and restore previous checkpoint
+        id: restore_state
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/projects" "$HOME/.local/share/opencode" \
+            "$HOME/.config/opencode" "$HOME/.config/opencode-telegram-bot"
+          node scripts/state.mjs self-test
+          node scripts/state.mjs restore
+
+      - name: Start isolated OpenCode V2 server
+        id: start_opencode
+        shell: bash
+        run: |
+          set -euo pipefail
+          SERVER_PASSWORD="$(openssl rand -hex 32)"
+          echo "::add-mask::$SERVER_PASSWORD"
+          printf 'OPENCODE_SERVER_PASSWORD=%s\n' "$SERVER_PASSWORD" >> "$GITHUB_ENV"
+          printf 'OPENCODE_SERVER_USERNAME=opencode\n' >> "$GITHUB_ENV"
+
+          OPENCODE_SERVER_PASSWORD="$SERVER_PASSWORD" \
+            nohup opencode serve --hostname 127.0.0.1 --port 49374 \
+            > "$RUNNER_TEMP/opencode-server.log" 2>&1 < /dev/null &
+          SERVER_PID=$!
+          printf '%s\n' "$SERVER_PID" > "$RUNNER_TEMP/opencode-server.pid"
+
+          for attempt in $(seq 1 90); do
+            if curl --silent --show-error --fail \
+              --user "opencode:$SERVER_PASSWORD" \
+              http://127.0.0.1:49374/global/health >/dev/null 2>&1; then
+              echo "OpenCode V2 server is healthy on loopback."
+              exit 0
+            fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              echo "::error::OpenCode server exited before becoming healthy. See the step logs."
+              exit 1
+            fi
+            sleep 2
+          done
+
+          echo "::error::OpenCode server health check timed out."
+          exit 1
+
+      - name: Run Telegram bot (maximum 5h 25m)
+        id: run_bot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALLOWED_USER_ID: ${{ secrets.TELEGRAM_ALLOWED_USER_ID }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          OPENCODE_SERVER_VERSION: v2
+          OPENCODE_API_URL: http://127.0.0.1:49374
+          OPENCODE_SERVER_USERNAME: opencode
+          OPENCODE_MODEL_PROVIDER: opencode
+          OPENCODE_MODEL_ID: big-pickle
+          OPENCODE_TELEGRAM_HOME: /home/runner/.config/opencode-telegram-bot
+          OPEN_BROWSER_ROOTS: /home/runner/projects
+          BOT_HEALTH_PORT: "0"
+          BOT_LOCALE: en
+          LOG_LEVEL: info
+        shell: bash
+        run: |
+          set -euo pipefail
+          opencode-telegram start &
+          BOT_PID=$!
+          (
+            sleep 325m
+            kill -INT "$BOT_PID" 2>/dev/null || true
+          ) &
+          TIMER_PID=$!
+
+          set +e
+          wait "$BOT_PID"
+          BOT_STATUS=$?
+          set -e
+
+          kill "$TIMER_PID" 2>/dev/null || true
+          wait "$TIMER_PID" 2>/dev/null || true
+
+          if [[ "$BOT_STATUS" -ne 0 ]]; then
+            echo "::error::Telegram bot exited with status $BOT_STATUS"
+            exit "$BOT_STATUS"
+          fi
+          echo "Telegram bot stopped cleanly."
+
+      - name: Stop OpenCode server cleanly
+        if: always() && steps.start_opencode.outcome != 'skipped'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PID_FILE="$RUNNER_TEMP/opencode-server.pid"
+          if [[ -f "$PID_FILE" ]]; then
+            SERVER_PID="$(cat "$PID_FILE")"
+            kill -TERM "$SERVER_PID" 2>/dev/null || true
+            for attempt in $(seq 1 30); do
+              if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+                echo "OpenCode server stopped."
+                exit 0
+              fi
+              sleep 1
+            done
+            echo "::warning::OpenCode server did not stop within 30 seconds; forcing shutdown."
+            kill -KILL "$SERVER_PID" 2>/dev/null || true
+          fi
+
+      - name: Save encrypted checkpoint to the public repository
+        if: always() && steps.restore_state.outcome == 'success'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/state.mjs save
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .state/agent-state.v1.enc
+
+          if git diff --cached --quiet; then
+            echo "Checkpoint is unchanged; no commit is needed."
+            exit 0
+          fi
+
+          git fetch origin main
+          git rebase --autostash origin/main
+          git add .state/agent-state.v1.enc
+          git commit -m "chore(state): update encrypted OpenCode checkpoint"
+          git push origin HEAD:main
+          echo "Encrypted checkpoint committed to main.";
