@@ -1,0 +1,256 @@
+#!/usr/bin/env node
+import {
+  createCipheriv,
+  createDecipheriv,
+  randomBytes,
+  scryptSync,
+} from "node:crypto";
+import { execFileSync } from "node:child_process";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
+const MAGIC = Buffer.from("OCTSTATE");
+const VERSION = 1;
+const HEADER_LENGTH = 8 + 1 + 16 + 12;
+const TAG_LENGTH = 16;
+const MAX_ENCRYPTED_BYTES = 95 * 1024 * 1024;
+const STATE_RELATIVE_PATH = ".state/agent-state.v1.enc";
+
+function getToken() {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || token.trim().length < 20) {
+    throw new Error(
+      "TELEGRAM_BOT_TOKEN is missing or invalid; state cannot be encrypted/decrypted.",
+    );
+  }
+  return token;
+}
+
+function deriveKey(token, salt) {
+  // Telegram bot tokens are high-entropy credentials. Scrypt derives a separate
+  // 256-bit state key; the random salt is stored with each encrypted snapshot.
+  return scryptSync(`opencode-telegram-cloud-state-v1:${token}`, salt, 32, {
+    N: 1 << 15,
+    r: 8,
+    p: 1,
+    maxmem: 64 * 1024 * 1024,
+  });
+}
+
+function encrypt(plain, token) {
+  const salt = randomBytes(16);
+  const iv = randomBytes(12);
+  const header = Buffer.concat([MAGIC, Buffer.from([VERSION]), salt, iv]);
+  const cipher = createCipheriv("aes-256-gcm", deriveKey(token, salt), iv);
+  cipher.setAAD(header);
+  const ciphertext = Buffer.concat([cipher.update(plain), cipher.final()]);
+  return Buffer.concat([header, cipher.getAuthTag(), ciphertext]);
+}
+
+function decrypt(encrypted, token) {
+  if (encrypted.length < HEADER_LENGTH + TAG_LENGTH) {
+    throw new Error("Encrypted state file is truncated.");
+  }
+  if (
+    !encrypted.subarray(0, 8).equals(MAGIC) ||
+    encrypted[8] !== VERSION
+  ) {
+    throw new Error("Encrypted state file has an unknown format/version.");
+  }
+
+  const header = encrypted.subarray(0, HEADER_LENGTH);
+  const salt = encrypted.subarray(9, 25);
+  const iv = encrypted.subarray(25, 37);
+  const tag = encrypted.subarray(37, 53);
+  const ciphertext = encrypted.subarray(53);
+  const decipher = createDecipheriv(
+    "aes-256-gcm",
+    deriveKey(token, salt),
+    iv,
+  );
+  decipher.setAAD(header);
+  decipher.setAuthTag(tag);
+  // Authentication completes before any archive extraction is attempted.
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+}
+
+function runTar(args) {
+  execFileSync("tar", args, { stdio: "inherit" });
+}
+
+async function save() {
+  const token = getToken();
+  const root = process.env.GITHUB_WORKSPACE || process.cwd();
+  const home = process.env.HOME;
+  if (!home) throw new Error("HOME is not set.");
+
+  const candidates = [
+    ".local/share/opencode",
+    ".config/opencode",
+    ".config/opencode-telegram-bot/settings.json",
+    ".config/opencode-telegram-bot/settings.json.bak",
+    ".config/opencode-telegram-bot/local-commands",
+    "projects",
+  ];
+  const included = [];
+
+  for (const relativePath of candidates) {
+    try {
+      await stat(path.join(home, relativePath));
+      included.push(relativePath);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+
+  if (included.length === 0) {
+    throw new Error(
+      "No OpenCode, bot, or project state was found to checkpoint.",
+    );
+  }
+
+  const temp = await mkdtemp(path.join(tmpdir(), "oct-state-"));
+  const archivePath = path.join(temp, "state.tar.gz");
+  const outputPath = path.join(root, STATE_RELATIVE_PATH);
+
+  try {
+    runTar([
+      "--create",
+      "--gzip",
+      "--file",
+      archivePath,
+      "--directory",
+      home,
+      "--exclude=node_modules",
+      "--exclude=.venv",
+      "--exclude=venv",
+      "--exclude=.pytest_cache",
+      "--exclude=.mypy_cache",
+      "--exclude=.ruff_cache",
+      "--exclude=.cache",
+      "--exclude=.next",
+      "--exclude=.turbo",
+      "--exclude=coverage",
+      ...included,
+    ]);
+
+    const archive = await readFile(archivePath);
+    const encrypted = encrypt(archive, token);
+
+    if (encrypted.length > MAX_ENCRYPTED_BYTES) {
+      throw new Error(
+        `Encrypted checkpoint is ${(encrypted.length / 1024 / 1024).toFixed(1)} MiB; maximum is 95 MiB. ` +
+          "Reduce checkpoint size or use a separate encrypted storage service.",
+      );
+    }
+
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, encrypted, { mode: 0o600 });
+    process.stdout.write(
+      `Encrypted checkpoint saved (${(encrypted.length / 1024 / 1024).toFixed(2)} MiB).\n`,
+    );
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+}
+
+async function restore() {
+  const token = getToken();
+  const root = process.env.GITHUB_WORKSPACE || process.cwd();
+  const home = process.env.HOME;
+  if (!home) throw new Error("HOME is not set.");
+
+  const inputPath = path.join(root, STATE_RELATIVE_PATH);
+  let encrypted;
+
+  try {
+    encrypted = await readFile(inputPath);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      process.stdout.write(
+        "No previous checkpoint found; starting with a clean OpenCode state.\n",
+      );
+      return;
+    }
+    throw error;
+  }
+
+  const archive = decrypt(encrypted, token);
+  const temp = await mkdtemp(path.join(tmpdir(), "oct-restore-"));
+  const archivePath = path.join(temp, "state.tar.gz");
+
+  try {
+    await writeFile(archivePath, archive, { mode: 0o600 });
+    await mkdir(home, { recursive: true });
+    runTar([
+      "--extract",
+      "--gzip",
+      "--file",
+      archivePath,
+      "--directory",
+      home,
+      "--no-same-owner",
+      "--no-same-permissions",
+    ]);
+    process.stdout.write(
+      "Previous OpenCode database, sessions, bot settings, and workspaces restored.\n",
+    );
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+}
+
+function selfTest() {
+  const token = "123456789:TEST_ONLY_random_secret_for_state_cipher";
+  const sample = Buffer.from("OpenCode cloud state encryption self-test\n");
+  const encrypted = encrypt(sample, token);
+  if (!decrypt(encrypted, token).equals(sample)) {
+    throw new Error("Encryption round-trip self-test failed.");
+  }
+
+  let rejected = false;
+  try {
+    decrypt(encrypted, `${token}-wrong`);
+  } catch {
+    rejected = true;
+  }
+  if (!rejected) throw new Error("Wrong-key authentication self-test failed.");
+
+  const tampered = Buffer.from(encrypted);
+  tampered[tampered.length - 1] ^= 0x01;
+  rejected = false;
+  try {
+    decrypt(tampered, token);
+  } catch {
+    rejected = true;
+  }
+  if (!rejected) throw new Error("Tamper-detection self-test failed.");
+
+  process.stdout.write(
+    "PASS: AES-256-GCM round-trip, wrong-key rejection, and tamper detection.\n",
+  );
+}
+
+const command = process.argv[2];
+
+try {
+  if (command === "save") await save();
+  else if (command === "restore") await restore();
+  else if (command === "self-test") selfTest();
+  else {
+    throw new Error("Usage: node scripts/state.mjs <save|restore|self-test>");
+  }
+} catch (error) {
+  process.stderr.write(
+    `${error instanceof Error ? error.message : String(error)}\n`,
+  );
+  process.exitCode = 1;
+}
