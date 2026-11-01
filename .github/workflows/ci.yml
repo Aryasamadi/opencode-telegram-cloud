@@ -33,6 +33,26 @@ jobs:
           node --test tests/addmodel-command.test.mjs tests/provider-manager.test.mjs tests/telegram-patch.test.mjs tests/state-roundtrip.test.mjs
           node scripts/state.mjs self-test
 
+      - name: Verify the latest OpenCode CLI database path matches the checkpoint path
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/opencode-cli" "$RUNNER_TEMP/opencode-home" "$RUNNER_TEMP/opencode-data"
+          npm install --prefix "$RUNNER_TEMP/opencode-cli" --no-audit --no-fund @opencode/cli@latest
+          OPENCODE="$RUNNER_TEMP/opencode-cli/node_modules/.bin/opencode"
+          ACTUAL="$(
+            HOME="$RUNNER_TEMP/opencode-home" \
+            XDG_DATA_HOME="$RUNNER_TEMP/opencode-data" \
+            "$OPENCODE" db path
+          )"
+          EXPECTED="$RUNNER_TEMP/opencode-data/opencode/opencode.db"
+          echo "OpenCode CLI database path: $ACTUAL"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "::error::OpenCode CLI database path differs from the state checkpoint path."
+            echo "::error::Expected $EXPECTED"
+            exit 1
+          fi
+
       - name: Smoke-test adapter against the latest published Telegram bot package
         shell: bash
         run: |
