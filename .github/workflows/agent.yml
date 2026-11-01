@@ -53,6 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           npm install --global @opencode/cli@latest @grinev/opencode-telegram-bot@latest
+          node scripts/patch-telegram-bot.mjs
           opencode --version
           opencode-telegram --help
 
