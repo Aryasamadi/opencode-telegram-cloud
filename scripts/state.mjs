@@ -9,6 +9,7 @@ import { execFileSync } from "node:child_process";
 import {
   mkdir,
   mkdtemp,
+  open as openFile,
   readFile,
   rm,
   stat,
@@ -117,8 +118,20 @@ function getHomeRelativePath(home, absolutePath, label) {
 async function inspectRuntimeState(home, label) {
   const databasePath = getDatabasePath(home);
   let databaseBytes = null;
+  let databaseIsSQLite = false;
   try {
     databaseBytes = (await stat(databasePath)).size;
+    if (databaseBytes >= 100) {
+      const handle = await openFile(databasePath, "r");
+      try {
+        const header = Buffer.alloc(16);
+        const { bytesRead } = await handle.read(header, 0, header.length, 0);
+        databaseIsSQLite =
+          bytesRead === 16 && header.equals(Buffer.from("SQLite format 3\\0"));
+      } finally {
+        await handle.close();
+      }
+    }
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
   }
@@ -139,15 +152,15 @@ async function inspectRuntimeState(home, label) {
   }
 
   process.stdout.write(
-    `${label}: OpenCode database ${databaseBytes === null ? "MISSING" : `present (${databaseBytes} bytes)`}; ` +
+    `${label}: OpenCode database ${databaseBytes === null ? "MISSING" : `${databaseIsSQLite ? "valid SQLite" : "INVALID"} (${databaseBytes} bytes)`}; ` +
     `bot settings ${settingsExists ? "present" : "not created"}; ` +
     `current session ${hasCurrentSession ? "selected" : "none"}; ` +
     `current project ${hasCurrentProject ? "selected" : "none"}\n`,
   );
 
-  if (hasCurrentSession && databaseBytes === null) {
+  if (hasCurrentSession && !databaseIsSQLite) {
     throw new Error(
-      `A Telegram session is selected but the OpenCode database is missing at ${databasePath}. ` +
+      `A Telegram session is selected but the OpenCode database is missing or invalid at ${databasePath}. ` +
       "Checkpoint aborted to avoid losing the session.",
     );
   }
