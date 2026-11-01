@@ -25,6 +25,23 @@ runner, the provider config is restored before OpenCode starts. The upstream
 Telegram bot's existing `/models` → `Providers` menu reads this catalog
 directly; this controller does not create a parallel picker.
 
+## Dynamic provider manager
+
+`scripts/provider-manager.mjs` provides the persistence layer for adding,
+listing, and removing multiple OpenAI-compatible providers. It merges provider
+entries into the existing OpenCode config and can discover model IDs through
+the provider's `/models` endpoint when an explicit model ID is not supplied.
+It does not create a second Telegram model menu: the upstream `/models`
+provider picker remains the intended UI.
+
+For providers added dynamically, the API key is stored in the local OpenCode
+config with file permissions restricted to the runner account. This is
+necessary to support multiple independent provider credentials. The config
+directory is included in the AES-256-GCM checkpoint, so the copy committed to
+the public repository is encrypted ciphertext, not plaintext config. The
+Telegram command adapter that invokes this manager is a separate integration
+step; the manager CLI alone does not register a Telegram command.
+
 ## Persistence boundary
 
 The checkpoint preserves:
