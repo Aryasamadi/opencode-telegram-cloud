@@ -102,6 +102,9 @@ async function addProvider(options) {
   const models = Object.fromEntries(modelIDs.map((modelID) => [modelID, { name: modelID }]));
   const file = configFile();
   const config = await readConfig(file);
+  if (Object.hasOwn(config.provider ?? {}, id)) {
+    throw new Error(`Provider "${id}" already exists. Remove it before adding it again.`);
+  }
   config.$schema ??= "https://opencode.ai/config.json";
   config.provider ??= {};
   config.provider[id] = {
