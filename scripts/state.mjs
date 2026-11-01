@@ -127,7 +127,7 @@ async function inspectRuntimeState(home, label) {
         const header = Buffer.alloc(16);
         const { bytesRead } = await handle.read(header, 0, header.length, 0);
         databaseIsSQLite =
-          bytesRead === 16 && header.equals(Buffer.from("SQLite format 3\\0"));
+          bytesRead === 16 && header.equals(Buffer.from("SQLite format 3\0"));
       } finally {
         await handle.close();
       }
