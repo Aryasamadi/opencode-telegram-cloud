@@ -57,6 +57,14 @@ jobs:
           npm install --global @opencode/cli@latest @grinev/opencode-telegram-bot@latest
           node scripts/patch-telegram-bot.mjs
           opencode --version
+          DATABASE_PATH="$(opencode db path)"
+          EXPECTED_DATABASE_PATH="$HOME/.local/share/opencode/opencode.db"
+          echo "OpenCode session database: $DATABASE_PATH"
+          if [[ "$DATABASE_PATH" != "$EXPECTED_DATABASE_PATH" ]]; then
+            echo "::error::OpenCode database path does not match the encrypted checkpoint path."
+            echo "::error::Expected $EXPECTED_DATABASE_PATH"
+            exit 1
+          fi
           opencode-telegram --help
 
       - name: Verify encryption and restore previous checkpoint
