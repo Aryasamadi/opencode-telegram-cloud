@@ -30,8 +30,26 @@ jobs:
           node --check scripts/provider-manager.mjs
           node --check scripts/addmodel-command.mjs
           node --check scripts/patch-telegram-bot.mjs
-          node --test tests/provider-manager.test.mjs tests/telegram-patch.test.mjs
+          node --test tests/addmodel-command.test.mjs tests/provider-manager.test.mjs tests/telegram-patch.test.mjs tests/state-roundtrip.test.mjs
           node scripts/state.mjs self-test
+
+      - name: Smoke-test adapter against the latest published Telegram bot package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/upstream-bot/package" "$RUNNER_TEMP/upstream-bot/tarball"
+          npm pack --ignore-scripts --silent @grinev/opencode-telegram-bot@latest \
+            --pack-destination "$RUNNER_TEMP/upstream-bot/tarball"
+          TARBALL="$(find "$RUNNER_TEMP/upstream-bot/tarball" -maxdepth 1 -name '*.tgz' -print -quit)"
+          test -n "$TARBALL"
+          tar -xzf "$TARBALL" --strip-components=1 -C "$RUNNER_TEMP/upstream-bot/package"
+          DIST="$RUNNER_TEMP/upstream-bot/package/dist"
+          OPENCODE_TELEGRAM_DIST="$DIST" node scripts/patch-telegram-bot.mjs
+          node --check "$DIST/bot/routers/command-router.js"
+          node --check "$DIST/bot/commands/definitions.js"
+          grep -q 'bot.command("addmodel"' "$DIST/bot/routers/command-router.js"
+          grep -q 'bot.command("opencode_stop", (ctx) => ctx.reply(' "$DIST/bot/routers/command-router.js"
+          grep -q 'command: "addmodel"' "$DIST/bot/commands/definitions.js"
 
       - name: Test custom provider config generation (dummy credentials only)
         env:
