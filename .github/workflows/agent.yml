@@ -101,10 +101,10 @@ jobs:
           set -euo pipefail
           node scripts/configure-provider.mjs
 
-      - name: Start isolated OpenCode V2 server
+      - name: Start managed OpenCode V2 server with restart recovery
         id: start_opencode
         env:
-          # The hosted OpenCode provider is used by the server process, not just the Telegram client.
+          # These credentials are inherited by the managed server process.
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           AI_PROVIDER_API_KEY: ${{ secrets.AI_PROVIDER_API_KEY }}
         shell: bash
@@ -115,27 +115,24 @@ jobs:
           printf 'OPENCODE_SERVER_PASSWORD=%s\n' "$SERVER_PASSWORD" >> "$GITHUB_ENV"
           printf 'OPENCODE_SERVER_USERNAME=opencode\n' >> "$GITHUB_ENV"
 
-          OPENCODE_SERVER_PASSWORD="$SERVER_PASSWORD" \
-            nohup opencode serve --hostname 127.0.0.1 --port 49374 \
-            > "$RUNNER_TEMP/opencode-server.log" 2>&1 < /dev/null &
-          SERVER_PID=$!
-          printf '%s\n' "$SERVER_PID" > "$RUNNER_TEMP/opencode-server.pid"
+          # The managed service lifecycle enables OpenCode's durable interrupted-run recovery.
+          opencode service set hostname 127.0.0.1
+          opencode service set port 49374
+          opencode service set password "$SERVER_PASSWORD"
+          opencode service start
 
           for attempt in $(seq 1 90); do
             if curl --silent --show-error --fail \
               --user "opencode:$SERVER_PASSWORD" \
               http://127.0.0.1:49374/global/health >/dev/null 2>&1; then
-              echo "OpenCode V2 server is healthy on loopback."
+              echo "Managed OpenCode V2 server is healthy on loopback."
               exit 0
-            fi
-            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-              echo "::error::OpenCode server exited before becoming healthy. See the step logs."
-              exit 1
             fi
             sleep 2
           done
 
-          echo "::error::OpenCode server health check timed out."
+          echo "::error::Managed OpenCode server health check timed out."
+          opencode service status || true
           exit 1
 
       - name: Run Telegram bot (maximum 5h 55m)
@@ -188,25 +185,13 @@ jobs:
           fi
           echo "Telegram bot exited cleanly before the planned session limit."
 
-      - name: Stop OpenCode server cleanly
+      - name: Stop managed OpenCode server cleanly
         if: always() && steps.start_opencode.outcome != 'skipped'
         shell: bash
         run: |
           set -euo pipefail
-          PID_FILE="$RUNNER_TEMP/opencode-server.pid"
-          if [[ -f "$PID_FILE" ]]; then
-            SERVER_PID="$(cat "$PID_FILE")"
-            kill -TERM "$SERVER_PID" 2>/dev/null || true
-            for attempt in $(seq 1 30); do
-              if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-                echo "OpenCode server stopped."
-                exit 0
-              fi
-              sleep 1
-            done
-            echo "::warning::OpenCode server did not stop within 30 seconds; forcing shutdown."
-            kill -KILL "$SERVER_PID" 2>/dev/null || true
-          fi
+          opencode service stop
+          echo "Managed OpenCode server stopped cleanly; suspended executions retain their durable recovery claims."
 
       - name: Save encrypted checkpoint to the public repository
         if: always() && steps.restore_state.outcome == 'success'
