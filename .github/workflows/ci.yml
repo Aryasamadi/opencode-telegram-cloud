@@ -67,10 +67,13 @@ jobs:
           node --check "$DIST/bot/routers/command-router.js"
           node --check "$DIST/bot/commands/definitions.js"
           node --check "$DIST/bot/callbacks/model-selection-callback-handler.js"
+          node --check "$DIST/app/services/model-selection-service.js"
           grep -q 'bot.command("addmodel"' "$DIST/bot/routers/command-router.js"
           grep -q 'bot.command("removeprovider"' "$DIST/bot/routers/command-router.js"
           grep -q 'command: "removeprovider"' "$DIST/bot/commands/definitions.js"
           grep -q 'reconcileStoredModelSelection({ forceCatalogRefresh: true })' "$DIST/bot/callbacks/model-selection-callback-handler.js"
+          grep -q 'const favorites = validatedFavorites;' "$DIST/app/services/model-selection-service.js"
+          grep -q 'favorites: \[\],' "$DIST/app/services/model-selection-service.js"
 
       - name: Test custom provider config generation (dummy credentials only)
         env:
