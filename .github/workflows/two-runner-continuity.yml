@@ -81,12 +81,14 @@ jobs:
           GITHUB_WORKSPACE="$CHECKPOINT_ROOT" node scripts/state.mjs save
           test -s "$CHECKPOINT_ROOT/.state/agent-state.v1.enc"
           ! grep -a -q 'unfinished project work' "$CHECKPOINT_ROOT/.state/agent-state.v1.enc"
+          mkdir -p .phase3-artifact
+          cp "$CHECKPOINT_ROOT/.state/agent-state.v1.enc" .phase3-artifact/
           echo "Runner 1 checkpoint created: $(du -h "$CHECKPOINT_ROOT/.state/agent-state.v1.enc" | cut -f1)"
       - name: Upload encrypted checkpoint for Runner 2
         uses: actions/upload-artifact@v4
         with:
           name: phase-3-encrypted-checkpoint
-          path: ${{ runner.temp }}/phase3-checkpoint-root/.state/agent-state*.enc
+          path: .phase3-artifact/agent-state.v1.enc
           if-no-files-found: error
           retention-days: 1
 
@@ -117,7 +119,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: phase-3-encrypted-checkpoint
-          path: ${{ runner.temp }}/phase3-checkpoint-root/.state
+          path: .phase3-artifact
       - name: Prove this is a different hosted runner
         shell: bash
         env:
@@ -134,6 +136,8 @@ jobs:
           # Runner 2 starts with a clean HOME; only the encrypted artifact crosses jobs.
           test ! -e "$HOME/.local/share/opencode/opencode.db"
           test ! -e "$HOME/projects/phase-3-continuity-project"
+          mkdir -p "$RUNNER_TEMP/phase3-checkpoint-root/.state"
+          cp .phase3-artifact/agent-state.v1.enc "$RUNNER_TEMP/phase3-checkpoint-root/.state/"
           GITHUB_WORKSPACE="$RUNNER_TEMP/phase3-checkpoint-root" node scripts/state.mjs restore
       - name: Verify session, model, provider, database, and uncommitted project work
         shell: bash
