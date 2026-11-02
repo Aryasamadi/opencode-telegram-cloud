@@ -133,10 +133,9 @@ The OpenCode database is restored in place, preserving session IDs and
 messages. The Telegram bot's settings file preserves its current project and
 session selection. The OpenCode model-selection metadata file under
 `~/.local/state/opencode` is also checkpointed. Files under
-`/home/runner/projects` and the GitHub Actions checkout directory are included
-in the encrypted workspace snapshot. The checkout's `.git`, `.state`, and
-`node_modules` directories are excluded; source files and uncommitted edits
-are included. The new checkpoint
+`/home/runner/projects` are included in the encrypted workspace snapshot.
+The GitHub Actions controller checkout is deliberately excluded so an older
+snapshot cannot overwrite newer workflow or persistence code on the next run. The new checkpoint
 diagnostics report whether the OpenCode database and selected Telegram session
 were found before saving and after restoring. Saving is stopped if settings
 claim a current session but the database is absent.
