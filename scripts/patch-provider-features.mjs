@@ -47,8 +47,6 @@ const definitions = await patch(path.join(packageRoot, "bot/commands/definitions
 }, "command definitions");
 
 const callback = await patch(path.join(packageRoot, "bot/callbacks/model-selection-callback-handler.js"), (source) => {
-  // Import the exported service directly. The compiled upstream callback's import
-  // formatting has changed between releases, so do not depend on a named-list anchor.
   if (!source.includes("reconcileStoredModelSelection")) {
     source = 'import { reconcileStoredModelSelection } from "../../app/services/model-selection-service.js";\n' + source;
   }
@@ -61,5 +59,30 @@ const callback = await patch(path.join(packageRoot, "bot/callbacks/model-selecti
   return source;
 }, "model selection callback");
 
-process.stdout.write("Provider removal and automatic provider-menu refresh: " +
-  (router || definitions || callback ? "installed.\n" : "already installed.\n"));
+// Do not turn the deployment's bootstrap model into a permanent Favorite. Favorites
+// must come from OpenCode's own model.json; the active selection is shown by the
+// persistent keyboard and must remain independent of this bootstrap default.
+const modelSelection = await patch(
+  path.join(packageRoot, "app/services/model-selection-service.js"),
+  (source) => {
+    const favoriteAnchor = "const favorites = dedupeModels([...validatedFavorites, ...offeredDefaultModels]);";
+    const fixedFavorite = "const favorites = validatedFavorites;";
+    const fallbackAnchor = "favorites: filterModelsByCatalog([envDefaultModel], await getValidModelKeys()),";
+    const fixedFallback = "favorites: [],";
+    if (!source.includes(favoriteAnchor) && !source.includes(fixedFavorite)) {
+      throw new Error("Upstream favorite-list construction changed; refusing to patch.");
+    }
+    if (!source.includes(fallbackAnchor) && !source.includes(fixedFallback)) {
+      throw new Error("Upstream missing-state fallback changed; refusing to patch.");
+    }
+    return source
+      .replace(favoriteAnchor, fixedFavorite)
+      .replace(fallbackAnchor, fixedFallback);
+  },
+  "model selection service",
+);
+
+process.stdout.write(
+  "Provider removal, provider-menu refresh, and truthful Favorites list: " +
+    (router || definitions || callback || modelSelection ? "installed.\\n" : "already installed.\\n"),
+);
