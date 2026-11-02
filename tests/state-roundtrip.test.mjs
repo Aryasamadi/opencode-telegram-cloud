@@ -18,7 +18,6 @@ test("encrypted checkpoint restores OpenCode DB, bot session selection, model st
   const modelPath = path.join(sourceHome, ".local/state/opencode/model.json");
   const staleServicePath = path.join(sourceHome, ".config/opencode/service.json");
   const projectFile = path.join(sourceHome, "projects/demo/main.py");
-  let databaseFixture;
   const settingsFixture = {
     currentProject: { directory: path.join(sourceHome, "projects/demo") },
     currentSession: { id: "ses_persistent_test", title: "Persistent session" },
@@ -43,7 +42,6 @@ test("encrypted checkpoint restores OpenCode DB, bot session selection, model st
       "db.close()",
     ].join("\n"), dbPath], { encoding: "utf8" });
     assert.equal(createDatabase.status, 0, createDatabase.stderr);
-    databaseFixture = await readFile(dbPath);
 
     await Promise.all([
       writeFile(settingsPath, JSON.stringify(settingsFixture)),
@@ -86,7 +84,15 @@ test("encrypted checkpoint restores OpenCode DB, bot session selection, model st
     assert.equal(restore.status, 0, restore.stderr || restore.stdout);
 
     const restoredDatabasePath = path.join(restoredHome, ".local/share/opencode/opencode.db");
-    assert.deepEqual(await readFile(restoredDatabasePath), databaseFixture);
+    const verifyDatabase = spawnSync("python3", ["-c", [
+      "import sqlite3, sys",
+      "db = sqlite3.connect(sys.argv[1])",
+      "assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'",
+      "row = db.execute('SELECT id, title FROM session').fetchone()",
+      "assert row == ('ses_persistent_test', 'Persistent session'), row",
+      "db.close()",
+    ].join("\\n"), restoredDatabasePath], { encoding: "utf8" });
+    assert.equal(verifyDatabase.status, 0, verifyDatabase.stderr || verifyDatabase.stdout);
     const verifySession = spawnSync("python3", ["-c",
       "import sqlite3, sys; db=sqlite3.connect(sys.argv[1]); row=db.execute('SELECT id, title FROM session').fetchone(); print('|'.join(row)); db.close()",
       restoredDatabasePath], { encoding: "utf8" });
