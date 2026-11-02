@@ -128,6 +128,44 @@ function getHomeRelativePath(home, absolutePath, label) {
   return relativePath || ".";
 }
 
+function isPathCovered(relativePath, includedPaths) {
+  return includedPaths.some((entry) =>
+    relativePath === entry || relativePath.startsWith(`${entry}${path.sep}`),
+  );
+}
+
+async function getSelectedProjectWorktree(home) {
+  const settingsPath = path.join(getBotHome(home), "settings.json");
+  let settings;
+  try {
+    settings = JSON.parse(await readFile(settingsPath, "utf8"));
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw new Error(`Cannot read Telegram bot settings at ${settingsPath} to locate the selected project.`);
+  }
+
+  const worktree = settings.currentProject?.worktree;
+  if (worktree === undefined || worktree === null || worktree === "") return null;
+  if (typeof worktree !== "string") {
+    throw new Error("Selected project worktree is not a valid path; refusing to checkpoint incomplete project state.");
+  }
+
+  const absolutePath = path.resolve(worktree);
+  const relativePath = getHomeRelativePath(home, absolutePath, "Selected project worktree");
+  if (relativePath === ".") {
+    throw new Error("Selected project cannot be HOME itself; refusing to archive the entire runner home.");
+  }
+
+  try {
+    const projectStat = await stat(absolutePath);
+    if (!projectStat.isDirectory()) throw new Error("not a directory");
+  } catch {
+    throw new Error(`Selected project directory is missing or unreadable: ${absolutePath}. Checkpoint aborted.`);
+  }
+
+  return relativePath;
+}
+
 async function inspectRuntimeState(home, label) {
   const databasePath = getDatabasePath(home);
   let databaseBytes = null;
@@ -152,12 +190,23 @@ async function inspectRuntimeState(home, label) {
   const settingsPath = path.join(getBotHome(home), "settings.json");
   let hasCurrentSession = false;
   let hasCurrentProject = false;
+  let projectWorktreeExists = false;
   let settingsExists = false;
   try {
     const settings = JSON.parse(await readFile(settingsPath, "utf8"));
     settingsExists = true;
     hasCurrentSession = Boolean(settings.currentSession);
     hasCurrentProject = Boolean(settings.currentProject);
+    const worktree = settings.currentProject?.worktree;
+    if (worktree) {
+      const absoluteWorktree = path.resolve(worktree);
+      getHomeRelativePath(home, absoluteWorktree, "Selected project worktree");
+      const worktreeStat = await stat(absoluteWorktree);
+      projectWorktreeExists = worktreeStat.isDirectory();
+      if (!projectWorktreeExists) {
+        throw new Error(`Selected project path is not a directory: ${absoluteWorktree}`);
+      }
+    }
   } catch (error) {
     if (error?.code !== "ENOENT") {
       throw new Error(`Telegram bot settings are unreadable at ${settingsPath}; refusing to claim session continuity.`);
@@ -220,6 +269,11 @@ async function save() {
     } catch (error) {
       if (error?.code !== "ENOENT") throw error;
     }
+  }
+
+  const selectedProjectRelative = await getSelectedProjectWorktree(home);
+  if (selectedProjectRelative && !isPathCovered(selectedProjectRelative, included)) {
+    included.push(selectedProjectRelative);
   }
 
   const databasePath = getDatabasePath(home);
