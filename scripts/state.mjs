@@ -209,7 +209,6 @@ async function save() {
     path.join(botHomeRelative, "settings.json.bak"),
     path.join(botHomeRelative, "local-commands"),
     "projects",
-    getHomeRelativePath(home, root, "GITHUB_WORKSPACE"),
   ];
   const included = [];
 
