@@ -16,8 +16,8 @@ server lifecycle.
 - Restores the OpenCode session database, Telegram's selected session/project,
   OpenCode model-selection metadata, custom providers, and checkpointed
   workspace files.
-- On shutdown, creates an authenticated AES-256-GCM encrypted checkpoint and
-  commits only the encrypted file at `.state/agent-state.v1.enc`.
+- While the bot is running, creates an authenticated AES-256-GCM encrypted checkpoint every two minutes; it also checkpoints on shutdown and commits only the encrypted file at `.state/agent-state.v1.enc`.
+- Uses SQLite's online backup API for a consistent live database snapshot, rather than copying an actively written database file.
 
 ## Required GitHub Actions secrets
 
@@ -133,9 +133,10 @@ The OpenCode database is restored in place, preserving session IDs and
 messages. The Telegram bot's settings file preserves its current project and
 session selection. The OpenCode model-selection metadata file under
 `~/.local/state/opencode` is also checkpointed. Files under
-`/home/runner/projects` are included in the encrypted workspace snapshot;
-files outside that directory (including uncommitted edits in the GitHub
-checkout directory) are not copied as project files. The new checkpoint
+`/home/runner/projects` and the GitHub Actions checkout directory are included
+in the encrypted workspace snapshot. The checkout's `.git`, `.state`, and
+`node_modules` directories are excluded; source files and uncommitted edits
+are included. The new checkpoint
 diagnostics report whether the OpenCode database and selected Telegram session
 were found before saving and after restoring. Saving is stopped if settings
 claim a current session but the database is absent.
