@@ -28,7 +28,7 @@ jobs:
         run: |
           set -euo pipefail
           for file in scripts/*.mjs; do node --check "$file"; done
-          node --test tests/addmodel-command.test.mjs tests/provider-manager.test.mjs tests/telegram-patch.test.mjs tests/state-roundtrip.test.mjs
+          node --test tests/addmodel-command.test.mjs tests/provider-manager.test.mjs tests/telegram-patch.test.mjs tests/reload-opencode-config.test.mjs tests/state-roundtrip.test.mjs
           node scripts/state.mjs self-test
 
       - name: Verify non-interactive Telegram startup configuration
@@ -37,7 +37,7 @@ jobs:
           set -euo pipefail
           grep -q '^          OPENCODE_MODEL_PROVIDER: opencode$' .github/workflows/agent.yml
           grep -q '^          OPENCODE_MODEL_ID: big-pickle$' .github/workflows/agent.yml
-          grep -q '^          MODELS_LIST_LIMIT: "100"$' .github/workflows/agent.yml
+          grep -q '^          MODELS_LIST_LIMIT: "10"$' .github/workflows/agent.yml
           grep -q '^          TELEGRAM_BOT_TOKEN:.*' .github/workflows/agent.yml
 
       - name: Verify the latest OpenCode CLI database path
