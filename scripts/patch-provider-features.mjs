@@ -113,18 +113,30 @@ async function closeEmptySessionMenu(ctx, deps) {
   // Clear the interaction slot before Telegram API calls so a failed message edit
   // can never leave the bot waiting for a button that no longer exists.
   deps.interactionManager.clearKind("inline", "manual");
+  let deleted = false;
   try {
     await ctx.deleteMessage();
-    await ctx.reply(t("sessions.empty"));
-    return;
+    deleted = true;
   } catch (deleteError) {
     logger.warn("[Sessions] Could not delete empty session menu; removing its keyboard instead:", deleteError);
+  }
+  if (deleted) {
+    try {
+      await ctx.reply(t("sessions.empty"));
+    } catch (replyError) {
+      logger.error("[Sessions] Could not send the empty-session prompt:", replyError);
+    }
+    return;
   }
   try {
     await ctx.editMessageText(t("sessions.empty"), { reply_markup: { inline_keyboard: [] } });
   } catch (editError) {
     logger.error("[Sessions] Could not close empty session menu:", editError);
-    await ctx.reply(t("sessions.empty"));
+    try {
+      await ctx.reply(t("sessions.empty"));
+    } catch (replyError) {
+      logger.error("[Sessions] Could not send the empty-session prompt:", replyError);
+    }
   }
 }
 
