@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -58,7 +58,9 @@ try {
   run("self-test");
 
   // Missing checkpoints must fail closed unless first-run bootstrap is explicit.
-  assert.throws(() => run("restore"), /No previous checkpoint found/);
+  const missingRestore = spawnSync(process.execPath, [script, "restore"], { env, encoding: "utf8" });
+  assert.notEqual(missingRestore.status, 0, "missing checkpoint must not silently start clean");
+  assert.match(missingRestore.stderr, /No previous checkpoint found/);
   env.STATE_ALLOW_EMPTY_CHECKPOINT = "true";
   run("restore");
   delete env.STATE_ALLOW_EMPTY_CHECKPOINT;
