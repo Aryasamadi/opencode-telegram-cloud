@@ -459,7 +459,7 @@ async function save() {
       currentSession: settings.currentSession || null,
       selectedProjectRelative,
       includedPaths: included,
-      databaseRelative,
+      databaseRelative: databaseExists ? databaseRelative : null,
     };
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n", { mode: 0o600 });
     runTar(["--append", "--file", archivePath, "--directory", temp, MANIFEST_NAME]);
@@ -543,7 +543,7 @@ async function restore() {
         break;
       } catch (error) {
         if (error?.code === "ENOENT") continue;
-        process.stderr.write(`Checkpoint candidate ${candidate.label} rejected: ${error.message}\\n`);
+        process.stderr.write(`Checkpoint candidate ${candidate.label} rejected: ${error.message}\n`);
       }
     }
 
@@ -555,7 +555,7 @@ async function restore() {
         }),
       )).then((values) => values.some(Boolean));
       if (!hasAnyCheckpoint && process.env.STATE_ALLOW_EMPTY_CHECKPOINT === "true") {
-        process.stdout.write("No previous checkpoint found; explicit STATE_ALLOW_EMPTY_CHECKPOINT=true allows first-time bootstrap.\\n");
+        process.stdout.write("No previous checkpoint found; explicit STATE_ALLOW_EMPTY_CHECKPOINT=true allows first-time bootstrap.\n");
         return;
       }
       if (!hasAnyCheckpoint) {
@@ -568,7 +568,7 @@ async function restore() {
       throw new Error("Both the current and previous encrypted checkpoints are missing or invalid; refusing to start with empty state.");
     }
 
-    process.stdout.write(`Restoring ${selectedCandidate.label} checkpoint created at ${manifest.createdAt}; session=${manifest.currentSession || "none"}; project=${manifest.selectedProjectRelative}.\\n`);
+    process.stdout.write(`Restoring ${selectedCandidate.label} checkpoint created at ${manifest.createdAt}; session=${manifest.currentSession || "none"}; project=${manifest.selectedProjectRelative}.\n`);
     await mkdir(home, { recursive: true });
     runTar(["--extract", "--gzip", "--file", archivePath, "--directory", home, "--no-same-owner", "--no-same-permissions"]);
     // This file can contain a previous runner's PID/password and is never reusable.
