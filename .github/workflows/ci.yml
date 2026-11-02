@@ -35,6 +35,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          awk '/^      - name: Start isolated OpenCode V2 server/{in_server=1} /^      - name: Run Telegram bot/{in_server=0} in_server && /^          OPENCODE_API_KEY:.*$/ {found=1} END {exit !found}' .github/workflows/agent.yml
           grep -q '^          OPENCODE_MODEL_PROVIDER: opencode$' .github/workflows/agent.yml
           grep -q '^          OPENCODE_MODEL_ID: big-pickle$' .github/workflows/agent.yml
           grep -q '^          MODELS_LIST_LIMIT: "10"$' .github/workflows/agent.yml
