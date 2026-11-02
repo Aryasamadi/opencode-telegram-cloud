@@ -91,7 +91,7 @@ try {
 
   // Keep a valid SQLite magic header but corrupt the database pages. The integrity
   // check must reject it before a new checkpoint can replace the last good one.
-  await writeFile(database, Buffer.concat([Buffer.from("SQLite format 3\\0"), Buffer.alloc(512)]));
+  await writeFile(database, Buffer.concat([Buffer.from("SQLite format 3\0"), Buffer.alloc(512)]));
   const corruptSave = spawnSync(process.execPath, [script, "save"], { env, encoding: "utf8" });
   assert.notEqual(corruptSave.status, 0, "corrupt SQLite pages must abort checkpointing");
   assert.match(corruptSave.stderr, /integrity_check|SQLite database|database disk image/i);
