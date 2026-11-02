@@ -14,6 +14,7 @@ import {
   rename,
   rm,
   stat,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -281,6 +282,12 @@ async function save() {
     if (databaseExists) {
       try {
         execFileSync("sqlite3", [databasePath, `.backup '${databaseSnapshotPath}'`], { stdio: "inherit" });
+        const sourceTimes = await Promise.all(["", "-wal"].map(async (suffix) => {
+          try { return (await stat(databasePath + suffix)).mtimeMs; }
+          catch (error) { if (error?.code === "ENOENT") return 0; throw error; }
+        }));
+        const snapshotTime = new Date(Math.max(...sourceTimes));
+        await utimes(databaseSnapshotPath, snapshotTime, snapshotTime);
       } catch (error) {
         throw new Error("SQLite online backup failed; refusing to checkpoint a potentially inconsistent live database. Ensure sqlite3 is installed. " + error.message);
       }
