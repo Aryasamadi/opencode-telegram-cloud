@@ -131,7 +131,7 @@ messages live while the workflow is running.
 
 The OpenCode database is restored in place, preserving session IDs and
 messages. The Telegram bot's settings file preserves its current project and
-session selection. The OpenCode model-selection metadata file under
+session selection. During each periodic checkpoint, the live SQLite database is captured with SQLite's online `.backup` operation; its database and WAL files are not copied independently. The bot's upstream OpenCode V2 reconnect path reattaches the saved current session and reconciles busy status and pending permission/question requests. OpenCode V2 is responsible for resuming an interrupted turn after a server restart; the cloud wrapper does not submit the same prompt again. The OpenCode model-selection metadata file under
 `~/.local/state/opencode` is also checkpointed. Files under
 `/home/runner/projects` are included in the encrypted workspace snapshot.
 The GitHub Actions controller checkout is deliberately excluded so an older
