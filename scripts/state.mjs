@@ -45,10 +45,10 @@ function getStateDecryptionKey() {
   return key;
 }
 
-function deriveKey(token, salt) {
+function deriveKey(secret, salt) {
   // Telegram bot tokens are high-entropy credentials. Scrypt derives a separate
   // 256-bit state key; the random salt is stored with each encrypted snapshot.
-  return scryptSync(`opencode-telegram-cloud-state-v1:${token}`, salt, 32, {
+  return scryptSync(`opencode-telegram-cloud-state-v1:${secret}`, salt, 32, {
     N: 1 << 15,
     r: 8,
     p: 1,
@@ -56,11 +56,11 @@ function deriveKey(token, salt) {
   });
 }
 
-function encrypt(plain, token) {
+function encrypt(plain, key) {
   const salt = randomBytes(16);
   const iv = randomBytes(12);
   const header = Buffer.concat([MAGIC, Buffer.from([VERSION]), salt, iv]);
-  const cipher = createCipheriv("aes-256-gcm", deriveKey(token, salt), iv);
+  const cipher = createCipheriv("aes-256-gcm", deriveKey(key, salt), iv);
   cipher.setAAD(header);
   const ciphertext = Buffer.concat([cipher.update(plain), cipher.final()]);
   return Buffer.concat([header, cipher.getAuthTag(), ciphertext]);
