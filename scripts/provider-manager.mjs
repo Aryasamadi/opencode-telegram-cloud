@@ -105,7 +105,7 @@ async function addProvider(options) {
     try {
       modelIDs = [...new Set([explicitModel, ...(await discoverModels(baseURL, apiKey))])];
     } catch (error) {
-      process.stderr.write(`Warning: provider model discovery failed; registering only the specified model. ${error.message}\\n`);
+      process.stderr.write(`Warning: provider model discovery failed; registering only the specified model. ${error.message}\n`);
       modelIDs = [explicitModel];
     }
   } else {
