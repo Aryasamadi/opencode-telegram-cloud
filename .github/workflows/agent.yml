@@ -75,6 +75,12 @@ jobs:
           fi
           opencode-telegram --help
 
+      - name: Test encrypted persistence round-trip in an isolated fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/state.test.mjs
+
       - name: Verify encryption and restore the saved state
         id: restore_state
         env:
