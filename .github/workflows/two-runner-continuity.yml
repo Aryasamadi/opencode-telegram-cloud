@@ -76,15 +76,17 @@ jobs:
             JSON.stringify({ provider: { phase3: { name: "Phase 3 test provider", models: { "phase3-test-model": { name: "CI fixture" } } } } }, null, 2));
           NODE
 
-          node scripts/state.mjs save
-          test -s .state/agent-state.v1.enc
-          ! grep -a -q 'unfinished project work' .state/agent-state.v1.enc
-          echo "Runner 1 checkpoint created: $(du -h .state/agent-state.v1.enc | cut -f1)"
+          CHECKPOINT_ROOT="$RUNNER_TEMP/phase3-checkpoint-root"
+          mkdir -p "$CHECKPOINT_ROOT/.state"
+          GITHUB_WORKSPACE="$CHECKPOINT_ROOT" node scripts/state.mjs save
+          test -s "$CHECKPOINT_ROOT/.state/agent-state.v1.enc"
+          ! grep -a -q 'unfinished project work' "$CHECKPOINT_ROOT/.state/agent-state.v1.enc"
+          echo "Runner 1 checkpoint created: $(du -h "$CHECKPOINT_ROOT/.state/agent-state.v1.enc" | cut -f1)"
       - name: Upload encrypted checkpoint for Runner 2
         uses: actions/upload-artifact@v4
         with:
           name: phase-3-encrypted-checkpoint
-          path: .state/agent-state*.enc
+          path: ${{ runner.temp }}/phase3-checkpoint-root/.state/agent-state*.enc
           if-no-files-found: error
           retention-days: 1
 
@@ -115,7 +117,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: phase-3-encrypted-checkpoint
-          path: .state
+          path: ${{ runner.temp }}/phase3-checkpoint-root/.state
       - name: Prove this is a different hosted runner
         shell: bash
         env:
@@ -132,7 +134,7 @@ jobs:
           # Runner 2 starts with a clean HOME; only the encrypted artifact crosses jobs.
           test ! -e "$HOME/.local/share/opencode/opencode.db"
           test ! -e "$HOME/projects/phase-3-continuity-project"
-          node scripts/state.mjs restore
+          GITHUB_WORKSPACE="$RUNNER_TEMP/phase3-checkpoint-root" node scripts/state.mjs restore
       - name: Verify session, model, provider, database, and uncommitted project work
         shell: bash
         run: |
