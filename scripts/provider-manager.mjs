@@ -93,13 +93,24 @@ async function addProvider(options) {
   const apiKey = options["api-key"]?.trim() || process.env.AI_PROVIDER_API_KEY;
   if (!apiKey) throw new Error("Missing provider API key.");
   const explicitModel = options["model-id"]?.trim();
+  const discoverAdditionalModels = options["discover-models"] === "true";
   validateId(id);
   let url;
   try { url = new URL(baseURL); } catch { throw new Error("--base-url must be an absolute HTTP(S) URL."); }
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
     throw new Error("--base-url must use HTTP(S) and must not contain embedded credentials.");
   }
-  const modelIDs = explicitModel ? [explicitModel] : await discoverModels(baseURL, apiKey);
+  let modelIDs;
+  if (explicitModel && discoverAdditionalModels) {
+    try {
+      modelIDs = [...new Set([explicitModel, ...(await discoverModels(baseURL, apiKey))])];
+    } catch (error) {
+      process.stderr.write(`Warning: provider model discovery failed; registering only the specified model. ${error.message}\\n`);
+      modelIDs = [explicitModel];
+    }
+  } else {
+    modelIDs = explicitModel ? [explicitModel] : await discoverModels(baseURL, apiKey);
+  }
   const models = Object.fromEntries(modelIDs.map((modelID) => [modelID, { name: modelID }]));
   const file = configFile();
   const config = await readConfig(file);
