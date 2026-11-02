@@ -84,20 +84,11 @@ test("encrypted checkpoint restores OpenCode DB, bot session selection, model st
     assert.equal(restore.status, 0, restore.stderr || restore.stdout);
 
     const restoredDatabasePath = path.join(restoredHome, ".local/share/opencode/opencode.db");
-    const verifyDatabase = spawnSync("python3", ["-c", [
-      "import sqlite3, sys",
-      "db = sqlite3.connect(sys.argv[1])",
-      "assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'",
-      "row = db.execute('SELECT id, title FROM session').fetchone()",
-      "assert row == ('ses_persistent_test', 'Persistent session'), row",
-      "db.close()",
-    ].join("\\n"), restoredDatabasePath], { encoding: "utf8" });
-    assert.equal(verifyDatabase.status, 0, verifyDatabase.stderr || verifyDatabase.stdout);
-    const verifySession = spawnSync("python3", ["-c",
-      "import sqlite3, sys; db=sqlite3.connect(sys.argv[1]); row=db.execute('SELECT id, title FROM session').fetchone(); print('|'.join(row)); db.close()",
+    const verifyDatabase = spawnSync("python3", ["-c",
+      "import sqlite3, sys; db=sqlite3.connect(sys.argv[1]); assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'; row=db.execute('SELECT id, title FROM session').fetchone(); assert row == ('ses_persistent_test', 'Persistent session'), row; print('|'.join(row)); db.close()",
       restoredDatabasePath], { encoding: "utf8" });
-    assert.equal(verifySession.status, 0, verifySession.stderr);
-    assert.equal(verifySession.stdout.trim(), "ses_persistent_test|Persistent session");
+    assert.equal(verifyDatabase.status, 0, verifyDatabase.stderr || verifyDatabase.stdout);
+    assert.equal(verifyDatabase.stdout.trim(), "ses_persistent_test|Persistent session");
     assert.deepEqual(
       JSON.parse(await readFile(path.join(restoredHome, ".config/opencode-telegram-bot/settings.json"), "utf8")),
       settingsFixture,
