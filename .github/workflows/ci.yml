@@ -35,7 +35,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q '^      - name: Start managed OpenCode V2 server with restart recovery
+          grep -Fq 'Start managed OpenCode V2 server with restart recovery' .github/workflows/agent.yml
+          grep -Fq 'OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}' .github/workflows/agent.yml
+          grep -Fq 'AI_PROVIDER_API_KEY: ${{ secrets.AI_PROVIDER_API_KEY }}' .github/workflows/agent.yml
           grep -q '^          OPENCODE_MODEL_PROVIDER: opencode$' .github/workflows/agent.yml
           grep -q '^          OPENCODE_MODEL_ID: big-pickle$' .github/workflows/agent.yml
           grep -q '^          MODELS_LIST_LIMIT: "10"$' .github/workflows/agent.yml
