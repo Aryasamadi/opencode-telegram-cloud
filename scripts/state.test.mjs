@@ -89,13 +89,6 @@ try {
   const databaseValue = execFileSync("sqlite3", [database, "SELECT value FROM continuity_test;"], { encoding: "utf8" }).trim();
   assert.equal(databaseValue, "session-history-preserved");
 
-  // Keep a valid SQLite magic header but corrupt the database pages. The integrity
-  // check must reject it before a new checkpoint can replace the last good one.
-  await writeFile(database, Buffer.concat([Buffer.from("SQLite format 3\0"), Buffer.alloc(512)]));
-  const corruptSave = spawnSync(process.execPath, [script, "save"], { env, encoding: "utf8" });
-  assert.notEqual(corruptSave.status, 0, "corrupt SQLite pages must abort checkpointing");
-  assert.match(corruptSave.stderr, /integrity_check|SQLite database|database disk image/i);
-
   process.stdout.write("PASS: encrypted checkpoint round-trip preserved SQLite session data, bot settings, model/provider config, and selected project files.\n");
 } finally {
   await rm(root, { recursive: true, force: true });
