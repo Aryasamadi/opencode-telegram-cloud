@@ -307,7 +307,7 @@ async function restore() {
     throw error;
   }
 
-  const archive = decrypt(encrypted, token);
+  const archive = decrypt(encrypted, key);
   const temp = await mkdtemp(path.join(tmpdir(), "oct-restore-"));
   const archivePath = path.join(temp, "state.tar.gz");
 
