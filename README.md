@@ -132,8 +132,23 @@ messages live while the workflow is running.
 The OpenCode database is restored in place, preserving session IDs and
 messages. Before saving and after restoring, the workflow runs SQLite's
 `PRAGMA integrity_check` and aborts if the database is corrupt. The Telegram bot's settings file preserves its current project and
-session selection. During each periodic checkpoint, the live SQLite database is captured with SQLite's online `.backup` operation; its database and WAL files are not copied independently. The bot's upstream OpenCode V2 reconnect path reattaches the saved current session and reconciles busy status and pending permission/question requests. OpenCode V2 is responsible for resuming an interrupted turn after a server restart; the cloud wrapper does not submit the same prompt again. The OpenCode model-selection metadata file under
-`~/.local/state/opencode` is also checkpointed. The selected project worktree is included in the encrypted workspace snapshot,
+session selection. During each periodic checkpoint, the live SQLite database is captured with SQLite's online `.backup` operation; its database and WAL files are not copied independently. The OpenCode model-selection metadata file under
+`~/.local/state/opencode` is also checkpointed.
+
+Each encrypted checkpoint contains a small recovery manifest (creation time,
+selected session/project, included paths, and database path). The workflow
+retains the immediately previous encrypted checkpoint alongside the current
+one. On startup it authenticates and validates the current archive and its
+SQLite database before extraction; if that candidate is invalid, it tries the
+previous known-good checkpoint. If neither is valid, startup fails instead
+of silently starting empty.
+
+OpenCode V2 can recover supported interrupted executions, but this is not an
+exactly-once guarantee. External tool side effects may have happened before a
+runner stopped and may be repeated on recovery. Process-local permission or
+question prompts and background shell process ownership are not guaranteed to
+survive a new runner; check their status before repeating any consequential
+action. The selected project worktree is included in the encrypted workspace snapshot,
 even when it lives under `/home/runner/work/...`; it is no longer silently
 excluded by a broad `work` directory exclusion. If the selected project is
 `/home/runner` itself, the controller checkout remains excluded so an older

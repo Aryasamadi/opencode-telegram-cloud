@@ -71,7 +71,17 @@ try {
   const checkpointBytes = await readFile(checkpoint);
   assert.ok(checkpointBytes.length > 64, "encrypted checkpoint should be non-empty");
 
-  // Simulate a fresh hosted runner while preserving the same HOME path.
+  // Save a second generation, verify rotation, then corrupt the latest ciphertext.
+  await writeFile(path.join(project, "important-work.txt"), "newer work that should roll back\n");
+  run("save");
+  const previousCheckpoint = path.join(workspace, ".state", "agent-state.previous.enc");
+  const previousBytes = await readFile(previousCheckpoint);
+  assert.ok(previousBytes.length > 64, "previous known-good checkpoint should be retained");
+  const damagedLatest = await readFile(checkpoint);
+  damagedLatest[damagedLatest.length - 1] ^= 0x01;
+  await writeFile(checkpoint, damagedLatest);
+
+  // Simulate a fresh hosted runner; restore must fall back to the previous generation.
   await rm(home, { recursive: true, force: true });
   run("restore");
 
