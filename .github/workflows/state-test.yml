@@ -1,0 +1,31 @@
+name: State Persistence Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  roundtrip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Install SQLite CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes sqlite3
+
+      - name: Test encryption and full state round-trip
+        run: node scripts/state.test.mjs
