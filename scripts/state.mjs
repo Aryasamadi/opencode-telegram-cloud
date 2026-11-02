@@ -25,14 +25,24 @@ const TAG_LENGTH = 16;
 const MAX_ENCRYPTED_BYTES = 95 * 1024 * 1024;
 const STATE_RELATIVE_PATH = ".state/agent-state.v1.enc";
 
-function getToken() {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || token.trim().length < 20) {
+function getStateEncryptionKey() {
+  const key = process.env.STATE_ENCRYPTION_KEY;
+  if (!key || key.trim().length < 32) {
     throw new Error(
-      "TELEGRAM_BOT_TOKEN is missing or invalid; state cannot be encrypted/decrypted.",
+      "STATE_ENCRYPTION_KEY is missing or too short; set a stable secret of at least 32 characters.",
     );
   }
-  return token;
+  return key;
+}
+
+function getStateDecryptionKey() {
+  const key = process.env.STATE_DECRYPTION_KEY || process.env.STATE_ENCRYPTION_KEY;
+  if (!key || key.trim().length < 20) {
+    throw new Error(
+      "STATE_DECRYPTION_KEY or STATE_ENCRYPTION_KEY is missing; state cannot be decrypted.",
+    );
+  }
+  return key;
 }
 
 function deriveKey(token, salt) {
@@ -56,7 +66,7 @@ function encrypt(plain, token) {
   return Buffer.concat([header, cipher.getAuthTag(), ciphertext]);
 }
 
-function decrypt(encrypted, token) {
+function decrypt(encrypted, key) {
   if (encrypted.length < HEADER_LENGTH + TAG_LENGTH) {
     throw new Error("Encrypted state file is truncated.");
   }
@@ -167,7 +177,7 @@ async function inspectRuntimeState(home, label) {
 }
 
 async function save() {
-  const token = getToken();
+  const key = getStateEncryptionKey();
   const root = process.env.GITHUB_WORKSPACE || process.cwd();
   const home = process.env.HOME;
   if (!home) throw new Error("HOME is not set.");
@@ -257,7 +267,7 @@ async function save() {
     ]);
 
     const archive = await readFile(archivePath);
-    const encrypted = encrypt(archive, token);
+    const encrypted = encrypt(archive, key);
 
     if (encrypted.length > MAX_ENCRYPTED_BYTES) {
       throw new Error(
@@ -277,7 +287,7 @@ async function save() {
 }
 
 async function restore() {
-  const token = getToken();
+  const key = getStateDecryptionKey();
   const root = process.env.GITHUB_WORKSPACE || process.cwd();
   const home = process.env.HOME;
   if (!home) throw new Error("HOME is not set.");
