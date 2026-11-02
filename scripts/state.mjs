@@ -17,7 +17,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { gzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import path from "node:path";
 
 const MAGIC = Buffer.from("OCTSTATE");
@@ -291,7 +291,21 @@ async function save() {
       ]);
     }
 
-    const archive = gzipSync(await readFile(archivePath));
+    const plainArchive = await readFile(archivePath);
+    try {
+      const previousEncrypted = await readFile(outputPath);
+      const previousArchive = gunzipSync(decrypt(previousEncrypted, key));
+      if (previousArchive.equals(plainArchive)) {
+        process.stdout.write("Checkpoint content is unchanged; preserving the existing encrypted snapshot.\\n");
+        return;
+      }
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        throw new Error("Existing checkpoint could not be authenticated and inspected; refusing to replace it. " + error.message);
+      }
+    }
+
+    const archive = gzipSync(plainArchive);
     const encrypted = encrypt(archive, key);
 
     if (encrypted.length > MAX_ENCRYPTED_BYTES) {
