@@ -47,11 +47,10 @@ const definitions = await patch(path.join(packageRoot, "bot/commands/definitions
 }, "command definitions");
 
 const callback = await patch(path.join(packageRoot, "bot/callbacks/model-selection-callback-handler.js"), (source) => {
-  const importAnchor = "  getProviders,";
-  const refreshImport = "  reconcileStoredModelSelection,";
-  if (!source.includes(refreshImport)) {
-    if (!source.includes(importAnchor)) throw new Error("Upstream model callback imports changed.");
-    source = source.replace(importAnchor, importAnchor + "\n" + refreshImport);
+  // Import the exported service directly. The compiled upstream callback's import
+  // formatting has changed between releases, so do not depend on a named-list anchor.
+  if (!source.includes("reconcileStoredModelSelection")) {
+    source = 'import { reconcileStoredModelSelection } from "../../app/services/model-selection-service.js";\\n' + source;
   }
   const providersAnchor = "  const providers = await getProviders();";
   const refreshed = "  if (page === 0) {\n    await reconcileStoredModelSelection({ forceCatalogRefresh: true });\n  }\n" + providersAnchor;
