@@ -76,7 +76,7 @@ jobs:
           grep -q 'command: "removeprovider"' "$DIST/bot/commands/definitions.js"
           grep -q 'reconcileStoredModelSelection({ forceCatalogRefresh: true })' "$DIST/bot/callbacks/model-selection-callback-handler.js"
           grep -q 'const favorites = validatedFavorites;' "$DIST/app/services/model-selection-service.js"
-          grep -q 'favorites: [],' "$DIST/app/services/model-selection-service.js"
+          grep -Fq 'favorites: [],' "$DIST/app/services/model-selection-service.js"
           grep -q 'session:delete-confirm:' "$DIST/bot/callbacks/safe-session-delete.js"
           grep -q 'ensureActiveInlineMenu(ctx, "session", deps)' "$DIST/bot/callbacks/safe-session-delete.js"
           grep -q 'clearKind("inline", "manual")' "$DIST/bot/callbacks/safe-session-delete.js"
