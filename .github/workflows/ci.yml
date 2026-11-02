@@ -68,12 +68,17 @@ jobs:
           node --check "$DIST/bot/commands/definitions.js"
           node --check "$DIST/bot/callbacks/model-selection-callback-handler.js"
           node --check "$DIST/app/services/model-selection-service.js"
+          node --check "$DIST/bot/callbacks/safe-session-delete.js"
           grep -q 'bot.command("addmodel"' "$DIST/bot/routers/command-router.js"
           grep -q 'bot.command("removeprovider"' "$DIST/bot/routers/command-router.js"
           grep -q 'command: "removeprovider"' "$DIST/bot/commands/definitions.js"
           grep -q 'reconcileStoredModelSelection({ forceCatalogRefresh: true })' "$DIST/bot/callbacks/model-selection-callback-handler.js"
           grep -q 'const favorites = validatedFavorites;' "$DIST/app/services/model-selection-service.js"
           grep -q 'favorites: \[\],' "$DIST/app/services/model-selection-service.js"
+          grep -q 'session:delete-confirm:' "$DIST/bot/callbacks/safe-session-delete.js"
+          grep -q 'opencodeClient.session.delete' "$DIST/bot/callbacks/safe-session-delete.js"
+          grep -q 'handleSafeSessionDelete(ctx, deps)' "$DIST/bot/callbacks/session-callback-handler.js"
+          grep -q 'session:delete:' "$DIST/bot/menus/session-selection-menu.js"
 
       - name: Test custom provider config generation (dummy credentials only)
         env:
