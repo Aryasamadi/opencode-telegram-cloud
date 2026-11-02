@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 
 const script = path.resolve("scripts/provider-manager.mjs");
@@ -103,11 +103,20 @@ test("registers the selected model plus the full provider /models catalog", asyn
   const address = server.address();
   const env = { ...process.env, HOME: root, OPENCODE_CONFIG_FILE: configFile };
   try {
-    const add = spawnSync(process.execPath, [script, "add", "--id", "catalog-provider",
-      "--name", "Catalog Provider", "--base-url", `http://127.0.0.1:${address.port}/v1`,
-      "--api-key", "catalog-test-key", "--model-id", "my-selected-model",
-      "--discover-models", "true"], { env, encoding: "utf8" });
-    assert.equal(add.status, 0, add.stderr);
+    const add = await new Promise((resolve) => {
+      const child = spawn(process.execPath, [script, "add", "--id", "catalog-provider",
+        "--name", "Catalog Provider", "--base-url", `http://127.0.0.1:${address.port}/v1`,
+        "--api-key", "catalog-test-key", "--model-id", "my-selected-model",
+        "--discover-models", "true"], { env });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
+      child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+      child.once("error", (error) => resolve({ code: -1, stdout, stderr: error.message }));
+      child.once("close", (code) => resolve({ code, stdout, stderr }));
+    });
+    assert.equal(add.code, 0, add.stderr);
+    assert.match(add.stdout, /4 model\\(s\\)/);
     const config = JSON.parse(await readFile(configFile, "utf8"));
     const modelIDs = Object.keys(config.provider["catalog-provider"].models).sort();
     assert.deepEqual(modelIDs, [
