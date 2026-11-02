@@ -54,7 +54,8 @@ test("encrypted checkpoint restores OpenCode DB, bot session selection, model st
 
     const baseEnv = {
       ...process.env,
-      TELEGRAM_BOT_TOKEN: token,
+      STATE_ENCRYPTION_KEY: token,
+      STATE_DECRYPTION_KEY: token,
       GITHUB_WORKSPACE: workspace,
       XDG_DATA_HOME: path.join(sourceHome, ".local/share"),
       XDG_CONFIG_HOME: path.join(sourceHome, ".config"),

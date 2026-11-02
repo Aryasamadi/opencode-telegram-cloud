@@ -25,20 +25,30 @@ const TAG_LENGTH = 16;
 const MAX_ENCRYPTED_BYTES = 95 * 1024 * 1024;
 const STATE_RELATIVE_PATH = ".state/agent-state.v1.enc";
 
-function getToken() {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || token.trim().length < 20) {
+function getStateEncryptionKey() {
+  const key = process.env.STATE_ENCRYPTION_KEY;
+  if (!key || key.trim().length < 32) {
     throw new Error(
-      "TELEGRAM_BOT_TOKEN is missing or invalid; state cannot be encrypted/decrypted.",
+      "STATE_ENCRYPTION_KEY is missing or too short; set a stable secret of at least 32 characters.",
     );
   }
-  return token;
+  return key;
 }
 
-function deriveKey(token, salt) {
+function getStateDecryptionKey() {
+  const key = process.env.STATE_DECRYPTION_KEY || process.env.STATE_ENCRYPTION_KEY;
+  if (!key || key.trim().length < 20) {
+    throw new Error(
+      "STATE_DECRYPTION_KEY or STATE_ENCRYPTION_KEY is missing; state cannot be decrypted.",
+    );
+  }
+  return key;
+}
+
+function deriveKey(secret, salt) {
   // Telegram bot tokens are high-entropy credentials. Scrypt derives a separate
   // 256-bit state key; the random salt is stored with each encrypted snapshot.
-  return scryptSync(`opencode-telegram-cloud-state-v1:${token}`, salt, 32, {
+  return scryptSync(`opencode-telegram-cloud-state-v1:${secret}`, salt, 32, {
     N: 1 << 15,
     r: 8,
     p: 1,
@@ -46,17 +56,17 @@ function deriveKey(token, salt) {
   });
 }
 
-function encrypt(plain, token) {
+function encrypt(plain, key) {
   const salt = randomBytes(16);
   const iv = randomBytes(12);
   const header = Buffer.concat([MAGIC, Buffer.from([VERSION]), salt, iv]);
-  const cipher = createCipheriv("aes-256-gcm", deriveKey(token, salt), iv);
+  const cipher = createCipheriv("aes-256-gcm", deriveKey(key, salt), iv);
   cipher.setAAD(header);
   const ciphertext = Buffer.concat([cipher.update(plain), cipher.final()]);
   return Buffer.concat([header, cipher.getAuthTag(), ciphertext]);
 }
 
-function decrypt(encrypted, token) {
+function decrypt(encrypted, key) {
   if (encrypted.length < HEADER_LENGTH + TAG_LENGTH) {
     throw new Error("Encrypted state file is truncated.");
   }
@@ -74,7 +84,7 @@ function decrypt(encrypted, token) {
   const ciphertext = encrypted.subarray(53);
   const decipher = createDecipheriv(
     "aes-256-gcm",
-    deriveKey(token, salt),
+    deriveKey(key, salt),
     iv,
   );
   decipher.setAAD(header);
@@ -167,7 +177,7 @@ async function inspectRuntimeState(home, label) {
 }
 
 async function save() {
-  const token = getToken();
+  const key = getStateEncryptionKey();
   const root = process.env.GITHUB_WORKSPACE || process.cwd();
   const home = process.env.HOME;
   if (!home) throw new Error("HOME is not set.");
@@ -257,7 +267,7 @@ async function save() {
     ]);
 
     const archive = await readFile(archivePath);
-    const encrypted = encrypt(archive, token);
+    const encrypted = encrypt(archive, key);
 
     if (encrypted.length > MAX_ENCRYPTED_BYTES) {
       throw new Error(
@@ -277,7 +287,7 @@ async function save() {
 }
 
 async function restore() {
-  const token = getToken();
+  const key = getStateDecryptionKey();
   const root = process.env.GITHUB_WORKSPACE || process.cwd();
   const home = process.env.HOME;
   if (!home) throw new Error("HOME is not set.");
@@ -297,7 +307,7 @@ async function restore() {
     throw error;
   }
 
-  const archive = decrypt(encrypted, token);
+  const archive = decrypt(encrypted, key);
   const temp = await mkdtemp(path.join(tmpdir(), "oct-restore-"));
   const archivePath = path.join(temp, "state.tar.gz");
 

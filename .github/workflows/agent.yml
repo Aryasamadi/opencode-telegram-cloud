@@ -38,6 +38,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_ALLOWED_USER_ID: ${{ secrets.TELEGRAM_ALLOWED_USER_ID }}
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
         shell: bash
         run: |
           set -euo pipefail
@@ -47,6 +48,10 @@ jobs:
           fi
           if [[ ! "${TELEGRAM_ALLOWED_USER_ID:-}" =~ ^[0-9]+$ ]]; then
             echo "::error::TELEGRAM_ALLOWED_USER_ID must be a numeric Telegram user ID"
+            exit 1
+          fi
+          if [[ "${#STATE_ENCRYPTION_KEY}" -lt 32 ]]; then
+            echo "::error::Missing or too-short repository secret STATE_ENCRYPTION_KEY (minimum 32 characters)"
             exit 1
           fi
 
@@ -71,7 +76,8 @@ jobs:
       - name: Verify encryption and restore previous checkpoint
         id: restore_state
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          STATE_DECRYPTION_KEY: ${{ secrets.STATE_DECRYPTION_KEY || secrets.STATE_ENCRYPTION_KEY }}
         shell: bash
         run: |
           set -euo pipefail
@@ -192,7 +198,7 @@ jobs:
       - name: Save encrypted checkpoint to the public repository
         if: always() && steps.restore_state.outcome == 'success'
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
         shell: bash
         run: |
           set -euo pipefail
