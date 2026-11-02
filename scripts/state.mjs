@@ -17,6 +17,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { gzipSync } from "node:zlib";
 import path from "node:path";
 
 const MAGIC = Buffer.from("OCTSTATE");
@@ -208,6 +209,7 @@ async function save() {
     path.join(botHomeRelative, "settings.json.bak"),
     path.join(botHomeRelative, "local-commands"),
     "projects",
+    getHomeRelativePath(home, root, "GITHUB_WORKSPACE"),
   ];
   const included = [];
 
@@ -242,19 +244,17 @@ async function save() {
   await inspectRuntimeState(home, "Before checkpoint");
 
   const temp = await mkdtemp(path.join(tmpdir(), "oct-state-"));
-  const archivePath = path.join(temp, "state.tar.gz");
+  const archivePath = path.join(temp, "state.tar");
+  const compressedArchivePath = path.join(temp, "state.tar.gz");
+  const databaseSnapshotPath = path.join(temp, "opencode.db.snapshot");
   const outputPath = path.join(root, STATE_RELATIVE_PATH);
 
   try {
-    runTar([
-      "--create",
-      "--gzip",
-      "--file",
-      archivePath,
-      "--directory",
-      home,
+    const tarExcludes = [
       `--exclude=${path.join(configHomeRelative, "opencode", "service.json")}`,
       "--exclude=node_modules",
+      "--exclude=.git",
+      "--exclude=.state",
       "--exclude=.venv",
       "--exclude=venv",
       "--exclude=.pytest_cache",
@@ -264,10 +264,35 @@ async function save() {
       "--exclude=.next",
       "--exclude=.turbo",
       "--exclude=coverage",
-      ...included,
+    ];
+    const databaseExists = await stat(databasePath).then(() => true).catch((error) => {
+      if (error?.code === "ENOENT") return false;
+      throw error;
+    });
+    if (databaseExists) {
+      for (const suffix of ["", "-wal", "-shm"]) {
+        tarExcludes.push(`--exclude=${databaseRelative + suffix}`);
+      }
+    }
+    runTar([
+      "--create", "--file", archivePath, "--directory", home,
+      ...tarExcludes, ...included,
     ]);
 
-    const archive = await readFile(archivePath);
+    if (databaseExists) {
+      try {
+        execFileSync("sqlite3", [databasePath, `.backup '${databaseSnapshotPath}'`], { stdio: "inherit" });
+      } catch (error) {
+        throw new Error("SQLite online backup failed; refusing to checkpoint a potentially inconsistent live database. Ensure sqlite3 is installed. " + error.message);
+      }
+      runTar([
+        "--append", "--file", archivePath, "--directory", temp,
+        `--transform=s|^opencode.db.snapshot${databaseRelative.startsWith("/") ? "" : ""}|${databaseRelative}|`,
+        "opencode.db.snapshot",
+      ]);
+    }
+
+    const archive = gzipSync(await readFile(archivePath));
     const encrypted = encrypt(archive, key);
 
     if (encrypted.length > MAX_ENCRYPTED_BYTES) {
