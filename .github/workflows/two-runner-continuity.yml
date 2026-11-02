@@ -1,0 +1,160 @@
+name: Phase 3 - Two Runner Continuity
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase-3-two-runner-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  checkpoint-on-runner-1:
+    name: Create encrypted state on Runner 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      runner_name: ${{ steps.origin.outputs.runner_name }}
+    env:
+      STATE_ENCRYPTION_KEY: phase-3-ci-only-not-a-production-secret-2026
+      XDG_DATA_HOME: /home/runner/.local/share
+      XDG_STATE_HOME: /home/runner/.local/state
+      XDG_CONFIG_HOME: /home/runner/.config
+      OPENCODE_TELEGRAM_HOME: /home/runner/.config/opencode-telegram-bot
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Install SQLite CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes sqlite3
+      - name: Record runner identity
+        id: origin
+        shell: bash
+        run: echo "runner_name=$RUNNER_NAME" >> "$GITHUB_OUTPUT"
+      - name: Create realistic continuity fixture and checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJECT="$HOME/projects/phase-3-continuity-project"
+          DB="$XDG_DATA_HOME/opencode/opencode.db"
+          mkdir -p "$PROJECT" "$(dirname "$DB")" "$XDG_STATE_HOME/opencode" \
+            "$XDG_CONFIG_HOME/opencode" "$OPENCODE_TELEGRAM_HOME"
+
+          # Simulate a real session record plus a pending-work marker.
+          sqlite3 "$DB" <<'SQL'
+          CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT NOT NULL);
+          INSERT INTO session (id, title) VALUES ('ses_phase3_runner1', 'Two-runner continuity test');
+          SQL
+
+          printf '%s\n' 'uncommitted project work from runner 1' > "$PROJECT/unfinished-work.py"
+          printf '%s\n' 'TASK_STATUS=IN_PROGRESS' > "$PROJECT/task-recovery-marker.txt"
+
+          node --input-type=module <<'NODE'
+          import { mkdir, writeFile } from 'node:fs/promises';
+          const home = process.env.HOME;
+          const project = `${home}/projects/phase-3-continuity-project`;
+          const bot = `${home}/.config/opencode-telegram-bot`;
+          const settings = {
+            currentProject: { id: "project_phase3", worktree: project, name: "Phase 3 continuity fixture" },
+            currentSession: { id: "ses_phase3_runner1", title: "Two-runner continuity test" },
+            providers: { phase3: { name: "Phase 3 test provider", model: "phase3-test-model" } }
+          };
+          await writeFile(`${bot}/settings.json`, JSON.stringify(settings, null, 2));
+          await writeFile(`${home}/.local/state/opencode/model.json`,
+            JSON.stringify({ providerID: "phase3", modelID: "phase3-test-model" }, null, 2));
+          await writeFile(`${home}/.config/opencode/opencode.json`,
+            JSON.stringify({ provider: { phase3: { name: "Phase 3 test provider", models: { "phase3-test-model": { name: "CI fixture" } } } } }, null, 2));
+          NODE
+
+          node scripts/state.mjs save
+          test -s .state/agent-state.v1.enc
+          ! grep -a -q 'unfinished project work' .state/agent-state.v1.enc
+          echo "Runner 1 checkpoint created: $(du -h .state/agent-state.v1.enc | cut -f1)"
+      - name: Upload encrypted checkpoint for Runner 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-3-encrypted-checkpoint
+          path: .state/agent-state*.enc
+          if-no-files-found: error
+          retention-days: 1
+
+  restore-on-runner-2:
+    name: Restore and verify on fresh Runner 2
+    needs: checkpoint-on-runner-1
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      STATE_ENCRYPTION_KEY: phase-3-ci-only-not-a-production-secret-2026
+      XDG_DATA_HOME: /home/runner/.local/share
+      XDG_STATE_HOME: /home/runner/.local/state
+      XDG_CONFIG_HOME: /home/runner/.config
+      OPENCODE_TELEGRAM_HOME: /home/runner/.config/opencode-telegram-bot
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Install SQLite CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes sqlite3
+      - name: Download Runner 1 encrypted checkpoint
+        uses: actions/download-artifact@v4
+        with:
+          name: phase-3-encrypted-checkpoint
+          path: .state
+      - name: Prove this is a different hosted runner
+        shell: bash
+        env:
+          RUNNER_1_NAME: ${{ needs.checkpoint-on-runner-1.outputs.runner_name }}
+        run: |
+          set -euo pipefail
+          echo "Runner 1: $RUNNER_1_NAME"
+          echo "Runner 2: $RUNNER_NAME"
+          test "$RUNNER_NAME" != "$RUNNER_1_NAME"
+      - name: Restore checkpoint on fresh HOME
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Runner 2 starts with a clean HOME; only the encrypted artifact crosses jobs.
+          test ! -e "$HOME/.local/share/opencode/opencode.db"
+          test ! -e "$HOME/projects/phase-3-continuity-project"
+          node scripts/state.mjs restore
+      - name: Verify session, model, provider, database, and uncommitted project work
+        shell: bash
+        run: |
+          set -euo pipefail
+          DB="$XDG_DATA_HOME/opencode/opencode.db"
+          PROJECT="$HOME/projects/phase-3-continuity-project"
+          test "$(sqlite3 "$DB" 'PRAGMA integrity_check;')" = "ok"
+          test "$(sqlite3 "$DB" "SELECT id FROM session WHERE id='ses_phase3_runner1';")" = "ses_phase3_runner1"
+          test "$(cat "$PROJECT/unfinished-work.py")" = "uncommitted project work from runner 1"
+          test "$(cat "$PROJECT/task-recovery-marker.txt")" = "TASK_STATUS=IN_PROGRESS"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFile } from 'node:fs/promises';
+          const home = process.env.HOME;
+          const settings = JSON.parse(await readFile(`${home}/.config/opencode-telegram-bot/settings.json`, 'utf8'));
+          const model = JSON.parse(await readFile(`${home}/.local/state/opencode/model.json`, 'utf8'));
+          const config = JSON.parse(await readFile(`${home}/.config/opencode/opencode.json`, 'utf8'));
+          assert.equal(settings.currentSession.id, 'ses_phase3_runner1');
+          assert.equal(settings.currentProject.worktree, `${home}/projects/phase-3-continuity-project`);
+          assert.equal(settings.providers.phase3.model, 'phase3-test-model');
+          assert.equal(model.providerID, 'phase3');
+          assert.equal(model.modelID, 'phase3-test-model');
+          assert.ok(config.provider.phase3.models['phase3-test-model']);
+          console.log('PASS: session selection, model, provider config, SQLite history, and uncommitted project files survived Runner 1 -> Runner 2.');
+          NODE
