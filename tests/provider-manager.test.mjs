@@ -116,7 +116,7 @@ test("registers the selected model plus the full provider /models catalog", asyn
       child.once("close", (code) => resolve({ code, stdout, stderr }));
     });
     assert.equal(add.code, 0, add.stderr);
-    assert.match(add.stdout, /4 model\\(s\\)/);
+    assert.match(add.stdout, /4 model\(s\)/);
     const config = JSON.parse(await readFile(configFile, "utf8"));
     const modelIDs = Object.keys(config.provider["catalog-provider"].models).sort();
     assert.deepEqual(modelIDs, [
