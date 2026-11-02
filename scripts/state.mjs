@@ -113,7 +113,10 @@ function validateArchive(archivePath) {
       throw new Error(`Checkpoint archive contains an unsafe path: ${entry}`);
     }
   }
-  if (!entries.includes(MANIFEST_NAME)) throw new Error("Checkpoint archive is missing its recovery manifest.");
+  if (!entries.includes(MANIFEST_NAME)) {
+    // Phase 1 checkpoints predate manifests; accept them as legacy recovery points.
+    return { formatVersion: 0, createdAt: "legacy checkpoint", currentSession: null, selectedProjectRelative: "unknown", includedPaths: [] };
+  }
   const manifestText = execFileSync("tar", ["--extract", "--to-stdout", "--gzip", "--file", archivePath, MANIFEST_NAME], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
