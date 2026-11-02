@@ -243,7 +243,7 @@ async function inspectRuntimeState(home, label) {
     `${label}: OpenCode database ${databaseBytes === null ? "MISSING" : `valid SQLite + integrity_check=ok (${databaseBytes} bytes)`}; ` +
     `bot settings ${settingsExists ? "present" : "not created"}; ` +
     `current session ${hasCurrentSession ? "selected" : "none"}; ` +
-    `current project ${hasCurrentProject ? (projectWorktreeExists ? "selected; worktree present" : "selected; worktree missing") : "none"}\\n`,
+    `current project ${hasCurrentProject ? (projectWorktreeExists ? "selected; worktree present" : "selected; worktree missing") : "none"}\n`,
   );
 
   if (hasCurrentSession && databaseBytes === null) {
@@ -459,7 +459,7 @@ async function restore() {
     if (error?.code === "ENOENT") {
       if (process.env.STATE_ALLOW_EMPTY_CHECKPOINT === "true") {
         process.stdout.write(
-          "No previous checkpoint found; explicit STATE_ALLOW_EMPTY_CHECKPOINT=true allows first-time bootstrap.\\n",
+          "No previous checkpoint found; explicit STATE_ALLOW_EMPTY_CHECKPOINT=true allows first-time bootstrap.\n",
         );
         return;
       }
