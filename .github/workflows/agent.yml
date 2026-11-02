@@ -73,7 +73,7 @@ jobs:
           fi
           opencode-telegram --help
 
-      - name: Verify encryption and restore previous checkpoint
+      - name: Verify encryption and start with a clean state
         id: restore_state
         env:
           STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
@@ -83,6 +83,8 @@ jobs:
           set -euo pipefail
           mkdir -p "$HOME/projects" "$HOME/.local/share/opencode" "$HOME/.local/state/opencode" \
             "$HOME/.config/opencode" "$HOME/.config/opencode-telegram-bot"
+          # Start fresh with the new Telegram bot; legacy sessions are intentionally discarded.
+          rm -f .state/agent-state.v1.enc
           node scripts/state.mjs self-test
           node scripts/state.mjs restore
 
