@@ -141,7 +141,7 @@ async function removeProvider(options) {
     process.stderr.write(
       `Provider "${requested}" was not found in the active OpenCode config.` +
       (available.length ? ` Available providers: ${available.join(", ")}` : " No custom providers are configured.") +
-      "\\n"
+      "\n"
     );
     process.exitCode = 1;
     return;
@@ -158,7 +158,7 @@ async function removeProvider(options) {
     delete config.model;
   }
   await writeConfig(file, config);
-  process.stdout.write(`Removed provider "${providerId}" (matched "${requested}").\\n`);
+  process.stdout.write(`Removed provider "${providerId}" (matched "${requested}").\n`);
 }
 
 async function listProviders() {
