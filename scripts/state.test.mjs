@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -29,7 +29,7 @@ function run(command) {
 
 try {
   const botHome = env.OPENCODE_TELEGRAM_HOME;
-  const project = path.join(home, "workspaces", "selected-project");
+  const project = path.join(home, "work", "opencode-telegram-cloud", "opencode-telegram-cloud");
   const database = path.join(home, ".local", "share", "opencode", "opencode.db");
   await Promise.all([
     mkdir(botHome, { recursive: true }),
@@ -56,6 +56,15 @@ try {
 
   execFileSync("sqlite3", [database, "CREATE TABLE continuity_test (value TEXT); INSERT INTO continuity_test VALUES ('session-history-preserved');"], { env });
   run("self-test");
+
+  // Missing checkpoints must fail closed unless first-run bootstrap is explicit.
+  const missingRestore = spawnSync(process.execPath, [script, "restore"], { env, encoding: "utf8" });
+  assert.notEqual(missingRestore.status, 0, "missing checkpoint must not silently start clean");
+  assert.match(missingRestore.stderr, /No previous checkpoint found/);
+  env.STATE_ALLOW_EMPTY_CHECKPOINT = "true";
+  run("restore");
+  delete env.STATE_ALLOW_EMPTY_CHECKPOINT;
+
   run("save");
 
   const checkpoint = path.join(workspace, ".state", "agent-state.v1.enc");
