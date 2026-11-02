@@ -146,8 +146,8 @@ jobs:
           OPEN_BROWSER_ROOTS: /home/runner/projects
           BOT_HEALTH_PORT: "0"
           BOT_LOCALE: en
-          # Show the full NVIDIA catalog (88 models) in paginated provider pages.
-          MODELS_LIST_LIMIT: "100"
+          # Keep provider and model menus readable; both are paginated at 10 entries per page.
+          MODELS_LIST_LIMIT: "10"
           LOG_LEVEL: info
         shell: bash
         run: |
