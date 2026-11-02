@@ -27,6 +27,7 @@ Open **Settings → Secrets and variables → Actions → New repository secret*
 | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | Token from @BotFather |
 | `TELEGRAM_ALLOWED_USER_ID` | Your numeric Telegram user ID |
+| `STATE_ENCRYPTION_KEY` | A stable random secret (at least 32 characters); generate with `openssl rand -hex 32` |
 
 Do not put either value in a file, commit, issue, or chat message.
 
@@ -104,7 +105,7 @@ it is not required when you supply your own provider.
 
 ## Run it
 
-1. Add the two required Telegram secrets.
+1. Add the required Telegram secrets and `STATE_ENCRYPTION_KEY`.
 2. Add the four required custom-provider secrets if you want your own model.
 3. Open **Actions → OpenCode Telegram Cloud → Run workflow**.
 4. Select the `main` branch and start the workflow.
@@ -153,10 +154,17 @@ encrypted versions, so repeated large checkpoints can grow repository size.
 ## Security notes
 
 - The repository is public; the checkpoint file is ciphertext only.
-- The encryption key is derived at runtime from `TELEGRAM_BOT_TOKEN` using
-  scrypt; the archive uses AES-256-GCM with authenticated integrity checking.
-- Keep the same bot token to decrypt old checkpoints. Before rotating the bot
-  token, restore and re-encrypt the checkpoint with the new token.
+- The checkpoint key is the independent `STATE_ENCRYPTION_KEY` secret; it is
+  never derived from the Telegram bot token. Scrypt derives the AES-256-GCM key,
+  and authenticated integrity checking rejects incorrect keys or tampering.
+- For a one-time migration from an older checkpoint encrypted with the previous
+  bot token, temporarily add `STATE_DECRYPTION_KEY` with that old token as its
+  value. Keep `STATE_ENCRYPTION_KEY` set to a new independent random secret.
+  Run the workflow once and confirm the checkpoint-save step succeeds; it will
+  re-encrypt the restored state with `STATE_ENCRYPTION_KEY`. Then delete
+  `STATE_DECRYPTION_KEY` from repository secrets. Future restores automatically
+  use `STATE_ENCRYPTION_KEY`, and Telegram bot token rotations no longer affect
+  checkpoint recovery. Never paste either secret into chat or commit it.
 - GitHub's temporary `GITHUB_TOKEN` receives only `contents: write` for this
   repository so the workflow can commit the encrypted checkpoint.
 - The OpenCode server listens only on loopback. A fresh random server password
