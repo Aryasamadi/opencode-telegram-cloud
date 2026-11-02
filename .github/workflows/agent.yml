@@ -55,13 +55,13 @@ jobs:
             exit 1
           fi
 
-      - name: Install runtime dependencies and latest published OpenCode and Telegram bot
+      - name: Install pinned OpenCode V2 and Telegram bot releases
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install --yes sqlite3
-          npm install --global @opencode/cli@latest @grinev/opencode-telegram-bot@latest
+          npm install --global @opencode/cli@2.2.5 @grinev/opencode-telegram-bot@0.26.6
           node scripts/patch-telegram-bot.mjs
           node scripts/patch-provider-features.mjs
           opencode --version
