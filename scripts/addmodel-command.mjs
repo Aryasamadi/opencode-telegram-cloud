@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { reloadOpenCodeConfig } from "./reload-opencode-config.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MANAGER = path.join(ROOT, "scripts", "provider-manager.mjs");
@@ -133,5 +134,11 @@ export async function addModelCommand(ctx) {
     .replaceAll(values.apiKey, "[redacted]")
     .replaceAll(values.baseURL, "[provider endpoint]")
     .slice(0, 1800);
-  await ctx.reply(`✅ ${safeOutput}\n\nOpen the model picker and tap 🗂 Providers; the list refreshes automatically.`);
+
+  try {
+    await reloadOpenCodeConfig();
+    await ctx.reply(`✅ ${safeOutput}\\n\\n✅ OpenCode reloaded its configuration. Open 🗂 Providers to browse the updated provider and model list.`);
+  } catch (error) {
+    await ctx.reply(`✅ Provider saved to OpenCode config.\\n${safeOutput}\\n\\n⚠️ ${error.message}`);
+  }
 }
