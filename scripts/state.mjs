@@ -27,6 +27,8 @@ const HEADER_LENGTH = 8 + 1 + 16 + 12;
 const TAG_LENGTH = 16;
 const MAX_ENCRYPTED_BYTES = 95 * 1024 * 1024;
 const STATE_RELATIVE_PATH = ".state/agent-state.v1.enc";
+const PREVIOUS_STATE_RELATIVE_PATH = ".state/agent-state.previous.enc";
+const MANIFEST_NAME = "checkpoint-manifest.json";
 
 function getStateEncryptionKey() {
   const key = process.env.STATE_ENCRYPTION_KEY;
@@ -98,6 +100,30 @@ function decrypt(encrypted, key) {
 
 function runTar(args) {
   execFileSync("tar", args, { stdio: "inherit" });
+}
+
+function validateArchive(archivePath) {
+  const entries = execFileSync("tar", ["--list", "--gzip", "--file", archivePath], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).split("\n").filter(Boolean);
+  for (const entry of entries) {
+    const normalized = path.posix.normalize(entry);
+    if (path.posix.isAbsolute(entry) || normalized === ".." || normalized.startsWith("../")) {
+      throw new Error(`Checkpoint archive contains an unsafe path: ${entry}`);
+    }
+  }
+  if (!entries.includes(MANIFEST_NAME)) throw new Error("Checkpoint archive is missing its recovery manifest.");
+  const manifestText = execFileSync("tar", ["--extract", "--to-stdout", "--gzip", "--file", archivePath, MANIFEST_NAME], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const manifest = JSON.parse(manifestText);
+  if (manifest?.formatVersion !== 1 || typeof manifest.createdAt !== "string" ||
+      !Array.isArray(manifest.includedPaths) || typeof manifest.selectedProjectRelative !== "string") {
+    throw new Error("Checkpoint recovery manifest is invalid or unsupported.");
+  }
+  return manifest;
 }
 
 function getXdgHome(home, variable, ...fallbackParts) {
@@ -330,8 +356,8 @@ async function save() {
 
   const temp = await mkdtemp(path.join(tmpdir(), "oct-state-"));
   const archivePath = path.join(temp, "state.tar");
-  const compressedArchivePath = path.join(temp, "state.tar.gz");
   const databaseSnapshotPath = path.join(temp, "opencode.db.snapshot");
+  const manifestPath = path.join(temp, MANIFEST_NAME);
   const outputPath = path.join(root, STATE_RELATIVE_PATH);
 
   try {
@@ -382,7 +408,7 @@ async function save() {
     }
     runTar([
       "--create", "--file", archivePath, "--directory", home,
-      ...tarExcludes, ...included,
+      ...tarExcludes, `--exclude=${MANIFEST_NAME}`, ...included,
     ]);
 
     if (databaseExists) {
@@ -404,17 +430,32 @@ async function save() {
       ]);
     }
 
+    const settings = await readFile(path.join(getBotHome(home), "settings.json"), "utf8").then(JSON.parse).catch(() => ({}));
+    const manifest = {
+      formatVersion: 1,
+      createdAt: new Date().toISOString(),
+      openCodeVersion: process.env.OPENCODE_VERSION || null,
+      currentSession: settings.currentSession || null,
+      selectedProjectRelative,
+      includedPaths: included,
+    };
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n", { mode: 0o600 });
+    runTar(["--append", "--file", archivePath, "--directory", temp, MANIFEST_NAME]);
     const plainArchive = await readFile(archivePath);
+    let previousEncrypted = null;
     try {
-      const previousEncrypted = await readFile(outputPath);
+      previousEncrypted = await readFile(outputPath);
       const previousArchive = gunzipSync(decrypt(previousEncrypted, key));
+      const previousArchivePath = path.join(temp, "previous-checkpoint.tar.gz");
+      await writeFile(previousArchivePath, previousArchive, { mode: 0o600 });
+      validateArchive(previousArchivePath);
       if (previousArchive.equals(plainArchive)) {
         process.stdout.write("Checkpoint content is unchanged; preserving the existing encrypted snapshot.\\n");
         return;
       }
     } catch (error) {
       if (error?.code !== "ENOENT") {
-        throw new Error("Existing checkpoint could not be authenticated and inspected; refusing to replace it. " + error.message);
+        throw new Error("Existing checkpoint could not be authenticated and validated; refusing to replace it. " + error.message);
       }
     }
 
@@ -429,6 +470,16 @@ async function save() {
     }
 
     await mkdir(path.dirname(outputPath), { recursive: true });
+    if (previousEncrypted) {
+      const previousPath = path.join(root, PREVIOUS_STATE_RELATIVE_PATH);
+      const temporaryPreviousPath = `${previousPath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+      try {
+        await writeFile(temporaryPreviousPath, previousEncrypted, { mode: 0o600, flag: "wx" });
+        await rename(temporaryPreviousPath, previousPath);
+      } finally {
+        await rm(temporaryPreviousPath, { force: true });
+      }
+    }
     const temporaryOutputPath = `${outputPath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
     try {
       await writeFile(temporaryOutputPath, encrypted, { mode: 0o600, flag: "wx" });
@@ -450,45 +501,54 @@ async function restore() {
   const home = process.env.HOME;
   if (!home) throw new Error("HOME is not set.");
 
-  const inputPath = path.join(root, STATE_RELATIVE_PATH);
-  let encrypted;
-
-  try {
-    encrypted = await readFile(inputPath);
-  } catch (error) {
-    if (error?.code === "ENOENT") {
-      if (process.env.STATE_ALLOW_EMPTY_CHECKPOINT === "true") {
-        process.stdout.write(
-          "No previous checkpoint found; explicit STATE_ALLOW_EMPTY_CHECKPOINT=true allows first-time bootstrap.\n",
-        );
-        return;
-      }
-      throw new Error(
-        "No previous checkpoint found. Refusing to start with an empty state because this may hide data loss. " +
-        "For a deliberate first-ever setup only, set the GitHub Actions variable STATE_ALLOW_EMPTY_CHECKPOINT=true, " +
-        "run once, confirm a checkpoint was committed, then remove that variable.",
-      );
-    }
-    throw error;
-  }
-
-  const archive = decrypt(encrypted, key);
+  const candidates = [
+    { label: "current", path: path.join(root, STATE_RELATIVE_PATH) },
+    { label: "previous known-good", path: path.join(root, PREVIOUS_STATE_RELATIVE_PATH) },
+  ];
   const temp = await mkdtemp(path.join(tmpdir(), "oct-restore-"));
   const archivePath = path.join(temp, "state.tar.gz");
+  let selectedCandidate = null;
+  let manifest = null;
 
   try {
-    await writeFile(archivePath, archive, { mode: 0o600 });
+    for (const candidate of candidates) {
+      try {
+        const encrypted = await readFile(candidate.path);
+        const archive = gunzipSync(decrypt(encrypted, key));
+        await writeFile(archivePath, archive, { mode: 0o600 });
+        manifest = validateArchive(archivePath);
+        selectedCandidate = candidate;
+        break;
+      } catch (error) {
+        if (error?.code === "ENOENT") continue;
+        process.stderr.write(`Checkpoint candidate ${candidate.label} rejected: ${error.message}\\n`);
+      }
+    }
+
+    if (!selectedCandidate) {
+      const hasAnyCheckpoint = await Promise.all(candidates.map(({ path: candidatePath }) =>
+        readFile(candidatePath).then(() => true).catch((error) => {
+          if (error?.code === "ENOENT") return false;
+          throw error;
+        }),
+      )).then((values) => values.some(Boolean));
+      if (!hasAnyCheckpoint && process.env.STATE_ALLOW_EMPTY_CHECKPOINT === "true") {
+        process.stdout.write("No previous checkpoint found; explicit STATE_ALLOW_EMPTY_CHECKPOINT=true allows first-time bootstrap.\\n");
+        return;
+      }
+      if (!hasAnyCheckpoint) {
+        throw new Error(
+          "No previous checkpoint found. Refusing to start with an empty state because this may hide data loss. " +
+          "For a deliberate first-ever setup only, set the GitHub Actions variable STATE_ALLOW_EMPTY_CHECKPOINT=true, " +
+          "run once, confirm a checkpoint was committed, then remove that variable.",
+        );
+      }
+      throw new Error("Both the current and previous encrypted checkpoints are missing or invalid; refusing to start with empty state.");
+    }
+
+    process.stdout.write(`Restoring ${selectedCandidate.label} checkpoint created at ${manifest.createdAt}; session=${manifest.currentSession || "none"}; project=${manifest.selectedProjectRelative}.\\n`);
     await mkdir(home, { recursive: true });
-    runTar([
-      "--extract",
-      "--gzip",
-      "--file",
-      archivePath,
-      "--directory",
-      home,
-      "--no-same-owner",
-      "--no-same-permissions",
-    ]);
+    runTar(["--extract", "--gzip", "--file", archivePath, "--directory", home, "--no-same-owner", "--no-same-permissions"]);
     // This file can contain a previous runner's PID/password and is never reusable.
     await rm(
       path.join(getXdgHome(home, "XDG_CONFIG_HOME", ".config"), "opencode", "service.json"),
