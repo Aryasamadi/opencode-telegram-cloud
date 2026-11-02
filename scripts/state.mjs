@@ -11,6 +11,7 @@ import {
   mkdtemp,
   open as openFile,
   readFile,
+  rename,
   rm,
   stat,
   writeFile,
@@ -277,9 +278,15 @@ async function save() {
     }
 
     await mkdir(path.dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, encrypted, { mode: 0o600 });
+    const temporaryOutputPath = `${outputPath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+    try {
+      await writeFile(temporaryOutputPath, encrypted, { mode: 0o600, flag: "wx" });
+      await rename(temporaryOutputPath, outputPath);
+    } finally {
+      await rm(temporaryOutputPath, { force: true });
+    }
     process.stdout.write(
-      `Encrypted checkpoint saved (${(encrypted.length / 1024 / 1024).toFixed(2)} MiB).\n`,
+      `Encrypted checkpoint saved atomically (${(encrypted.length / 1024 / 1024).toFixed(2)} MiB).\n`,
     );
   } finally {
     await rm(temp, { recursive: true, force: true });
