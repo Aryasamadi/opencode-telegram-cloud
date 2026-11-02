@@ -42,8 +42,8 @@ export async function removeProviderCommand(ctx) {
 
   try {
     await reloadOpenCodeConfig();
-    await ctx.reply(`✅ ${result.stdout.trim()}\\n\\n✅ OpenCode reloaded its configuration. The removed provider should now disappear from 🗂 Providers.`);
+    await ctx.reply(`✅ ${result.stdout.trim()}\n\n✅ OpenCode reloaded its configuration. The removed provider should now disappear from 🗂 Providers.`);
   } catch (error) {
-    await ctx.reply(`✅ ${result.stdout.trim()}\\n\\n⚠️ The provider was removed from the config file, but the running OpenCode server did not reload: ${error.message}`);
+    await ctx.reply(`✅ ${result.stdout.trim()}\n\n⚠️ The provider was removed from the config file, but the running OpenCode server did not reload: ${error.message}`);
   }
 }
