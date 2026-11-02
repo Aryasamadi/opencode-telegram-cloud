@@ -147,10 +147,10 @@ await writeFile(deleteHelperPath, deleteHelper, { mode: 0o644 });
 const sessionHandler = await patch(
   path.join(packageRoot, "bot/callbacks/session-callback-handler.js"),
   (source) => {
-    const importAnchor = 'import { loadSessionPage } from "../menus/session-selection-menu.js";';
     if (!source.includes("handleSafeSessionDelete")) {
-      if (!source.includes(importAnchor)) throw new Error("Session callback import anchor changed.");
-      source = source.replace(importAnchor, importAnchor + '\nimport { handleSafeSessionDelete } from "./safe-session-delete.js";');
+      const firstLineEnd = source.indexOf("\n");
+      if (firstLineEnd < 0) throw new Error("Session callback module header changed.");
+      source = source.slice(0, firstLineEnd + 1) + 'import { handleSafeSessionDelete } from "./safe-session-delete.js";\n' + source.slice(firstLineEnd + 1);
     }
     const handlerAnchor = "export async function handleSessionSelect(ctx, deps) {";
     const handlerReplacement = handlerAnchor + "\n  if (await handleSafeSessionDelete(ctx, deps)) return true;";
