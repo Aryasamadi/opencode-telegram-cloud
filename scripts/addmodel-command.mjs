@@ -102,7 +102,7 @@ export async function addModelCommand(ctx) {
     "--name", values.name,
     "--base-url", values.baseURL,
   ];
-  args.push("--model-id", values.modelID);
+  args.push("--model-id", values.modelID, "--discover-models", "true");
 
   await ctx.reply("⏳ Checking provider and registering its models…");
   const result = await new Promise((resolve) => {
