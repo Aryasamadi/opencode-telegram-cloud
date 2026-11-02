@@ -50,7 +50,7 @@ const callback = await patch(path.join(packageRoot, "bot/callbacks/model-selecti
   // Import the exported service directly. The compiled upstream callback's import
   // formatting has changed between releases, so do not depend on a named-list anchor.
   if (!source.includes("reconcileStoredModelSelection")) {
-    source = 'import { reconcileStoredModelSelection } from "../../app/services/model-selection-service.js";\\n' + source;
+    source = 'import { reconcileStoredModelSelection } from "../../app/services/model-selection-service.js";\n' + source;
   }
   const providersAnchor = "  const providers = await getProviders();";
   const refreshed = "  if (page === 0) {\n    await reconcileStoredModelSelection({ forceCatalogRefresh: true });\n  }\n" + providersAnchor;
