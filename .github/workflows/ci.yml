@@ -30,6 +30,7 @@ jobs:
           for file in scripts/*.mjs; do node --check "$file"; done
           node --test tests/addmodel-command.test.mjs tests/provider-manager.test.mjs tests/telegram-patch.test.mjs tests/reload-opencode-config.test.mjs tests/state-roundtrip.test.mjs
           node scripts/state.mjs self-test
+          node scripts/state.test.mjs
 
       - name: Verify managed OpenCode startup configuration
         shell: bash
