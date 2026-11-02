@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { reloadOpenCodeConfig } from "./reload-opencode-config.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MANAGER = path.join(ROOT, "scripts", "provider-manager.mjs");
@@ -39,5 +40,10 @@ export async function removeProviderCommand(ctx) {
     return;
   }
 
-  await ctx.reply(`✅ ${result.stdout.trim()}\n\nOpen the model picker and tap 🗂 Providers. The provider list will refresh automatically.`);
+  try {
+    await reloadOpenCodeConfig();
+    await ctx.reply(`✅ ${result.stdout.trim()}\\n\\n✅ OpenCode reloaded its configuration. The removed provider should now disappear from 🗂 Providers.`);
+  } catch (error) {
+    await ctx.reply(`✅ ${result.stdout.trim()}\\n\\n⚠️ The provider was removed from the config file, but the running OpenCode server did not reload: ${error.message}`);
+  }
 }
