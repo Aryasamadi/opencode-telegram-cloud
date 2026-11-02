@@ -41,7 +41,8 @@ function validateId(id) {
 function configFile() {
   const home = process.env.HOME;
   if (!home) throw new Error("HOME is not set.");
-  return process.env.OPENCODE_CONFIG_FILE || path.join(home, ".config", "opencode", "opencode.json");
+  const configHome = process.env.XDG_CONFIG_HOME?.trim() || path.join(home, ".config");
+  return process.env.OPENCODE_CONFIG_FILE || path.join(configHome, "opencode", "opencode.json");
 }
 
 async function readConfig(file) {
@@ -118,18 +119,46 @@ async function addProvider(options) {
 }
 
 async function removeProvider(options) {
-  const id = required(options, "id");
-  validateId(id);
+  const requested = required(options, "id");
+  const normalized = (value) => value.toLocaleLowerCase("en").replace(/[^a-z0-9]/g, "");
+  const requestedKey = normalized(requested);
+  if (!requestedKey) throw new Error("Provider ID or name must contain letters or numbers.");
+
   const file = configFile();
   const config = await readConfig(file);
-  if (!config.provider?.[id]) {
-    process.stdout.write(`Provider "${id}" was not configured.\n`);
+  const entries = Object.entries(config.provider ?? {});
+  const matches = entries.filter(([providerId, provider]) =>
+    normalized(providerId) === requestedKey ||
+    normalized(typeof provider?.name === "string" ? provider.name : "") === requestedKey
+  );
+
+  if (matches.length === 0) {
+    const available = entries.map(([providerId, provider]) =>
+      provider?.name && provider.name !== providerId
+        ? `${providerId} (${provider.name})`
+        : providerId
+    );
+    process.stderr.write(
+      `Provider "${requested}" was not found in the active OpenCode config.` +
+      (available.length ? ` Available providers: ${available.join(", ")}` : " No custom providers are configured.") +
+      "\\n"
+    );
+    process.exitCode = 1;
     return;
   }
-  delete config.provider[id];
-  if (typeof config.model === "string" && config.model.startsWith(`${id}/`)) delete config.model;
+  if (matches.length > 1) {
+    throw new Error(
+      `"${requested}" matches multiple providers: ${matches.map(([providerId]) => providerId).join(", ")}. Use the exact provider ID.`
+    );
+  }
+
+  const [providerId] = matches[0];
+  delete config.provider[providerId];
+  if (typeof config.model === "string" && config.model.startsWith(`${providerId}/`)) {
+    delete config.model;
+  }
   await writeConfig(file, config);
-  process.stdout.write(`Removed provider "${id}". Open the model picker and tap Providers to refresh.\n`);
+  process.stdout.write(`Removed provider "${providerId}" (matched "${requested}").\\n`);
 }
 
 async function listProviders() {
