@@ -8,5 +8,5 @@ Only authenticated AES-256-GCM ciphertext belongs in this directory. Never
 commit plaintext archives, database files, configuration directories, bot
 tokens, model API keys, or encryption keys here.
 
-The encryption key is derived at runtime from the `TELEGRAM_BOT_TOKEN`
-repository secret. The token itself is not written into this directory.
+The independent `STATE_ENCRYPTION_KEY` GitHub Actions secret encrypts the
+checkpoint. It is not derived from the Telegram bot token.

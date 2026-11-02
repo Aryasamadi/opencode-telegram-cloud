@@ -86,6 +86,7 @@ jobs:
         env:
           STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
           STATE_DECRYPTION_KEY: ${{ secrets.STATE_DECRYPTION_KEY || secrets.STATE_ENCRYPTION_KEY }}
+          STATE_ALLOW_EMPTY_CHECKPOINT: ${{ vars.STATE_ALLOW_EMPTY_CHECKPOINT }}
         shell: bash
         run: |
           set -euo pipefail

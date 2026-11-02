@@ -214,17 +214,42 @@ async function inspectRuntimeState(home, label) {
     }
   }
 
+  if (databaseBytes !== null) {
+    if (!databaseIsSQLite) {
+      throw new Error(
+        `OpenCode database exists but is not a valid SQLite file at ${databasePath}. ` +
+        "Checkpoint/restore aborted rather than preserving a corrupt database.",
+      );
+    }
+    let integrity;
+    try {
+      integrity = execFileSync("sqlite3", [databasePath, "PRAGMA integrity_check;"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }).trim();
+    } catch (error) {
+      throw new Error(
+        `SQLite integrity_check could not run for ${databasePath}; refusing to claim continuity. ${error.message}`,
+      );
+    }
+    if (integrity !== "ok") {
+      throw new Error(
+        `SQLite integrity_check failed for ${databasePath}: ${integrity || "no result"}`,
+      );
+    }
+  }
+
   process.stdout.write(
-    `${label}: OpenCode database ${databaseBytes === null ? "MISSING" : `${databaseIsSQLite ? "valid SQLite" : "INVALID"} (${databaseBytes} bytes)`}; ` +
+    `${label}: OpenCode database ${databaseBytes === null ? "MISSING" : `valid SQLite + integrity_check=ok (${databaseBytes} bytes)`}; ` +
     `bot settings ${settingsExists ? "present" : "not created"}; ` +
     `current session ${hasCurrentSession ? "selected" : "none"}; ` +
     `current project ${hasCurrentProject ? (projectWorktreeExists ? "selected; worktree present" : "selected; worktree missing") : "none"}\n`,
   );
 
-  if (hasCurrentSession && !databaseIsSQLite) {
+  if (hasCurrentSession && databaseBytes === null) {
     throw new Error(
-      `A Telegram session is selected but the OpenCode database is missing or invalid at ${databasePath}. ` +
-      "Checkpoint aborted to avoid losing the session.",
+      `A Telegram session is selected but the OpenCode database is missing at ${databasePath}. ` +
+      "Checkpoint/restore aborted to avoid losing the session.",
     );
   }
 }
@@ -275,9 +300,10 @@ async function save() {
   const selectedProjectRelative = await getSelectedProjectWorktree(home);
   if (selectedProjectRelative === ".") {
     // The user explicitly selected HOME as the project root. Archive it once,
-    // excluding runner internals and credential stores below.
+    // excluding runner internals and the controller checkout below.
     included.splice(0, included.length, ".");
   } else if (selectedProjectRelative && !isPathCovered(selectedProjectRelative, included)) {
+    // Archive the selected path explicitly, even when it is under /home/runner/work.
     included.push(selectedProjectRelative);
   }
 
@@ -311,6 +337,7 @@ async function save() {
   try {
     const tarExcludes = [
       `--exclude=${path.join(configHomeRelative, "opencode", "service.json")}`,
+      ...(selectedProjectRelative === "." ? ["--exclude=work"] : []),
       // Never copy host credentials or ephemeral GitHub-hosted runner internals.
       "--exclude=.ssh",
       "--exclude=.gnupg",
@@ -324,7 +351,8 @@ async function save() {
       "--exclude=.netrc",
       "--exclude=.npmrc",
       "--exclude=.bash_history",
-      "--exclude=work",
+      // Do not globally exclude HOME/work: a selected project may live there.
+      // HOME itself is handled separately to avoid restoring an old controller checkout.
       "--exclude=_work",
       "--exclude=_temp",
       "--exclude=externals",
@@ -429,10 +457,17 @@ async function restore() {
     encrypted = await readFile(inputPath);
   } catch (error) {
     if (error?.code === "ENOENT") {
-      process.stdout.write(
-        "No previous checkpoint found; starting with a clean OpenCode state.\n",
+      if (process.env.STATE_ALLOW_EMPTY_CHECKPOINT === "true") {
+        process.stdout.write(
+          "No previous checkpoint found; explicit STATE_ALLOW_EMPTY_CHECKPOINT=true allows first-time bootstrap.\n",
+        );
+        return;
+      }
+      throw new Error(
+        "No previous checkpoint found. Refusing to start with an empty state because this may hide data loss. " +
+        "For a deliberate first-ever setup only, set the GitHub Actions variable STATE_ALLOW_EMPTY_CHECKPOINT=true, " +
+        "run once, confirm a checkpoint was committed, then remove that variable.",
       );
-      return;
     }
     throw error;
   }
