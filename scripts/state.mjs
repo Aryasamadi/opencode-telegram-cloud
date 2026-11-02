@@ -84,7 +84,7 @@ function decrypt(encrypted, key) {
   const ciphertext = encrypted.subarray(53);
   const decipher = createDecipheriv(
     "aes-256-gcm",
-    deriveKey(token, salt),
+    deriveKey(key, salt),
     iv,
   );
   decipher.setAAD(header);
