@@ -570,7 +570,7 @@ async function restore() {
 
     process.stdout.write(`Restoring ${selectedCandidate.label} checkpoint created at ${manifest.createdAt}; session=${manifest.currentSession || "none"}; project=${manifest.selectedProjectRelative}.\n`);
     await mkdir(home, { recursive: true });
-    runTar(["--extract", "--gzip", "--file", archivePath, "--directory", home, "--no-same-owner", "--no-same-permissions"]);
+    runTar(["--extract", "--file", archivePath, "--directory", home, "--no-same-owner", "--no-same-permissions"]);
     // This file can contain a previous runner's PID/password and is never reusable.
     await rm(
       path.join(getXdgHome(home, "XDG_CONFIG_HOME", ".config"), "opencode", "service.json"),
