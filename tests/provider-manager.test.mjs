@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { createServer } from "node:http";
 
 const script = path.resolve("scripts/provider-manager.mjs");
 
@@ -80,6 +81,40 @@ test("removes provider by case-insensitive ID/display name and fails truthfully 
     config = JSON.parse(await readFile(configFile, "utf8"));
     assert.ok(config.provider.keep);
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("registers the selected model plus the full provider /models catalog", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "opencode-provider-catalog-test-"));
+  const configFile = path.join(root, "config", "opencode.json");
+  await mkdir(path.dirname(configFile), { recursive: true });
+  const server = createServer((req, res) => {
+    assert.equal(req.url, "/v1/models");
+    assert.equal(req.headers.authorization, "Bearer catalog-test-key");
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ data: [
+      { id: "provider-model-a" },
+      { id: "provider-model-b" },
+      { id: "provider-model-c" },
+    ] }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const env = { ...process.env, HOME: root, OPENCODE_CONFIG_FILE: configFile };
+  try {
+    const add = spawnSync(process.execPath, [script, "add", "--id", "catalog-provider",
+      "--name", "Catalog Provider", "--base-url", `http://127.0.0.1:${address.port}/v1`,
+      "--api-key", "catalog-test-key", "--model-id", "my-selected-model",
+      "--discover-models", "true"], { env, encoding: "utf8" });
+    assert.equal(add.status, 0, add.stderr);
+    const config = JSON.parse(await readFile(configFile, "utf8"));
+    const modelIDs = Object.keys(config.provider["catalog-provider"].models).sort();
+    assert.deepEqual(modelIDs, [
+      "my-selected-model", "provider-model-a", "provider-model-b", "provider-model-c",
+    ]);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     await rm(root, { recursive: true, force: true });
   }
 });
