@@ -36,7 +36,7 @@ jobs:
         run: |
           set -euo pipefail
           awk '/^      - name: Start isolated OpenCode V2 server/{in_server=1} /^      - name: Run Telegram bot/{in_server=0} in_server && /^          OPENCODE_API_KEY:.*$/ {found=1} END {exit !found}' .github/workflows/agent.yml
-          grep -q '^          OPENCODE_MODEL_PROVIDER: opencode
+          grep -q '^          OPENCODE_MODEL_PROVIDER: opencode$' .github/workflows/agent.yml
           grep -q '^          OPENCODE_MODEL_ID: big-pickle$' .github/workflows/agent.yml
           grep -q '^          MODELS_LIST_LIMIT: "10"$' .github/workflows/agent.yml
           grep -q '^          TELEGRAM_BOT_TOKEN:.*' .github/workflows/agent.yml
@@ -74,63 +74,7 @@ jobs:
 
       - name: Test custom provider config generation (dummy credentials only)
         env:
-          HOME: ${{ runner.temp }}/provider-test-home
-          AI_PROVIDER_ID: test-provider
-          AI_PROVIDER_NAME: Test Provider
-          AI_BASE_URL: https://api.example.test/v1
-          AI_PROVIDER_API_KEY: dummy-test-key-not-a-real-credential
-          AI_MODEL_ID: test-model
-          AI_MODEL_NAME: Test Model
-        shell: bash
-        run: |
-          set -euo pipefail
-          node scripts/configure-provider.mjs
-          node --input-type=module -e '
-            import { readFile } from "node:fs/promises";
-            const config = JSON.parse(await readFile(process.env.HOME + "/.config/opencode/opencode.json", "utf8"));
-            if (!config.provider?.["test-provider"]?.models?.["test-model"]) throw new Error("Provider/model missing");
-            if (JSON.stringify(config).includes("dummy-test-key-not-a-real-credential")) throw new Error("API key leaked");
-            if (config.provider["test-provider"].options.apiKey !== "{env:AI_PROVIDER_API_KEY}") throw new Error("API key env reference missing");
-          '
- .github/workflows/agent.yml
-          grep -q '^          OPENCODE_MODEL_ID: big-pickle$' .github/workflows/agent.yml
-          grep -q '^          MODELS_LIST_LIMIT: "10"$' .github/workflows/agent.yml
-          grep -q '^          TELEGRAM_BOT_TOKEN:.*' .github/workflows/agent.yml
-
-      - name: Verify the latest OpenCode CLI database path
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/opencode-cli" "$RUNNER_TEMP/opencode-home" "$RUNNER_TEMP/opencode-data"
-          npm install --prefix "$RUNNER_TEMP/opencode-cli" --no-audit --no-fund @opencode/cli@latest
-          OPENCODE="$RUNNER_TEMP/opencode-cli/node_modules/.bin/opencode"
-          ACTUAL="$(HOME="$RUNNER_TEMP/opencode-home" XDG_DATA_HOME="$RUNNER_TEMP/opencode-data" "$OPENCODE" debug paths db)"
-          EXPECTED="$RUNNER_TEMP/opencode-data/opencode/opencode.db"
-          test "$ACTUAL" = "$EXPECTED"
-
-      - name: Smoke-test adapter against latest Telegram bot package
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/upstream-bot/package" "$RUNNER_TEMP/upstream-bot/tarball"
-          npm pack --ignore-scripts --silent @grinev/opencode-telegram-bot@latest --pack-destination "$RUNNER_TEMP/upstream-bot/tarball"
-          TARBALL="$(find "$RUNNER_TEMP/upstream-bot/tarball" -maxdepth 1 -name '*.tgz' -print -quit)"
-          test -n "$TARBALL"
-          tar -xzf "$TARBALL" --strip-components=1 -C "$RUNNER_TEMP/upstream-bot/package"
-          DIST="$RUNNER_TEMP/upstream-bot/package/dist"
-          OPENCODE_TELEGRAM_DIST="$DIST" node scripts/patch-telegram-bot.mjs
-          OPENCODE_TELEGRAM_DIST="$DIST" node scripts/patch-provider-features.mjs
-          node --check "$DIST/bot/routers/command-router.js"
-          node --check "$DIST/bot/commands/definitions.js"
-          node --check "$DIST/bot/callbacks/model-selection-callback-handler.js"
-          grep -q 'bot.command("addmodel"' "$DIST/bot/routers/command-router.js"
-          grep -q 'bot.command("removeprovider"' "$DIST/bot/routers/command-router.js"
-          grep -q 'command: "removeprovider"' "$DIST/bot/commands/definitions.js"
-          grep -q 'reconcileStoredModelSelection({ forceCatalogRefresh: true })' "$DIST/bot/callbacks/model-selection-callback-handler.js"
-
-      - name: Test custom provider config generation (dummy credentials only)
-        env:
-          HOME: ${{ runner.temp }}/provider-test-home
+          HOME: \${{ runner.temp }}/provider-test-home
           AI_PROVIDER_ID: test-provider
           AI_PROVIDER_NAME: Test Provider
           AI_BASE_URL: https://api.example.test/v1
