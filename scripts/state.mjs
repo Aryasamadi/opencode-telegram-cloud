@@ -103,7 +103,7 @@ function runTar(args) {
 }
 
 async function validateArchive(archivePath) {
-  const entries = execFileSync("tar", ["--list", "--gzip", "--file", archivePath], {
+  const entries = execFileSync("tar", ["--list", "--file", archivePath], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   }).split("\n").filter(Boolean);
@@ -117,7 +117,7 @@ async function validateArchive(archivePath) {
     // Phase 1 checkpoints predate manifests; accept them as legacy recovery points.
     return { formatVersion: 0, createdAt: "legacy checkpoint", currentSession: null, selectedProjectRelative: "unknown", includedPaths: [] };
   }
-  const manifestText = execFileSync("tar", ["--extract", "--to-stdout", "--gzip", "--file", archivePath, MANIFEST_NAME], {
+  const manifestText = execFileSync("tar", ["--extract", "--to-stdout", "--file", archivePath, MANIFEST_NAME], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   });
