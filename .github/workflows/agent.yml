@@ -55,10 +55,12 @@ jobs:
             exit 1
           fi
 
-      - name: Install latest published OpenCode and Telegram bot
+      - name: Install runtime dependencies and latest published OpenCode and Telegram bot
         shell: bash
         run: |
           set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes sqlite3
           npm install --global @opencode/cli@latest @grinev/opencode-telegram-bot@latest
           node scripts/patch-telegram-bot.mjs
           node scripts/patch-provider-features.mjs
@@ -160,11 +162,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          set +e
-          timeout --signal=TERM --kill-after=30s 355m opencode-telegram start
-          BOT_STATUS=$?
-          set -e
+          timeout --signal=TERM --kill-after=30s 355m opencode-telegram start &
+          BOT_PID=$!
+          BOT_STATUS=0
 
+          # Persist a consistent encrypted checkpoint every two minutes while the bot is live.
+          while kill -0 "$BOT_PID" 2>/dev/null; do
+            sleep 120
+            if kill -0 "$BOT_PID" 2>/dev/null; then
+              echo "Creating periodic checkpoint..."
+              if ! bash scripts/checkpoint.sh; then
+                echo "::warning::Periodic checkpoint failed; the final shutdown checkpoint will retry."
+              fi
+            fi
+          done
+
+          wait "$BOT_PID" || BOT_STATUS=$?
           if [[ "$BOT_STATUS" -eq 124 ]]; then
             echo "Planned session limit reached; Telegram bot received SIGTERM."
             exit 0
@@ -202,20 +215,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/state.mjs save
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .state/agent-state.v1.enc
-
-          if git diff --cached --quiet; then
-            echo "Checkpoint is unchanged; no commit is needed."
-            exit 0
-          fi
-
-          git fetch origin main
-          git rebase --autostash origin/main
-          git add .state/agent-state.v1.enc
-          git commit -m "chore(state): update encrypted OpenCode checkpoint"
-          git push origin HEAD:main
-          echo "Encrypted checkpoint committed to main.";
+          bash scripts/checkpoint.sh
