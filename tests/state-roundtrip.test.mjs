@@ -17,9 +17,10 @@ test("encrypted checkpoint restores OpenCode DB, bot session selection, model st
   const settingsPath = path.join(sourceHome, ".config/opencode-telegram-bot/settings.json");
   const modelPath = path.join(sourceHome, ".local/state/opencode/model.json");
   const staleServicePath = path.join(sourceHome, ".config/opencode/service.json");
-  const projectFile = path.join(sourceHome, "projects/demo/main.py");
+  const projectWorktree = path.join(sourceHome, "worktrees/demo");
+  const projectFile = path.join(projectWorktree, "main.py");
   const settingsFixture = {
-    currentProject: { directory: path.join(sourceHome, "projects/demo") },
+    currentProject: { id: "project_demo", worktree: projectWorktree, name: "demo" },
     currentSession: { id: "ses_persistent_test", title: "Persistent session" },
   };
   const modelFixture = { providerID: "test-provider", modelID: "test-model" };
@@ -99,10 +100,11 @@ test("encrypted checkpoint restores OpenCode DB, bot session selection, model st
     );
     await assert.rejects(readFile(path.join(restoredHome, ".config/opencode/service.json")), { code: "ENOENT" });
     assert.equal(
-      await readFile(path.join(restoredHome, "projects/demo/main.py"), "utf8"),
+      await readFile(path.join(restoredHome, "worktrees/demo/main.py"), "utf8"),
       "print('checkpointed workspace')\n",
     );
     assert.match(restore.stdout, /current session selected/);
+    assert.match(restore.stdout, /worktree present/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
