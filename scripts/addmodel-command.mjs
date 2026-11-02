@@ -137,8 +137,8 @@ export async function addModelCommand(ctx) {
 
   try {
     await reloadOpenCodeConfig();
-    await ctx.reply(`✅ ${safeOutput}\\n\\n✅ OpenCode reloaded its configuration. Open 🗂 Providers to browse the updated provider and model list.`);
+    await ctx.reply(`✅ ${safeOutput}\n\n✅ OpenCode reloaded its configuration. Open 🗂 Providers to browse the updated provider and model list.`);
   } catch (error) {
-    await ctx.reply(`✅ Provider saved to OpenCode config.\\n${safeOutput}\\n\\n⚠️ ${error.message}`);
+    await ctx.reply(`✅ Provider saved to OpenCode config.\n${safeOutput}\n\n⚠️ ${error.message}`);
   }
 }
