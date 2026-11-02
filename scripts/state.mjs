@@ -102,7 +102,7 @@ function runTar(args) {
   execFileSync("tar", args, { stdio: "inherit" });
 }
 
-function validateArchive(archivePath) {
+async function validateArchive(archivePath) {
   const entries = execFileSync("tar", ["--list", "--gzip", "--file", archivePath], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -123,8 +123,26 @@ function validateArchive(archivePath) {
   });
   const manifest = JSON.parse(manifestText);
   if (manifest?.formatVersion !== 1 || typeof manifest.createdAt !== "string" ||
-      !Array.isArray(manifest.includedPaths) || typeof manifest.selectedProjectRelative !== "string") {
+      !Array.isArray(manifest.includedPaths) || typeof manifest.selectedProjectRelative !== "string" ||
+      (manifest.databaseRelative !== null && typeof manifest.databaseRelative !== "string")) {
     throw new Error("Checkpoint recovery manifest is invalid or unsupported.");
+  }
+  if (manifest.databaseRelative) {
+    const databaseRelative = path.posix.normalize(manifest.databaseRelative);
+    if (path.posix.isAbsolute(databaseRelative) || databaseRelative === ".." || databaseRelative.startsWith("../")) {
+      throw new Error("Checkpoint manifest contains an unsafe database path.");
+    }
+    const temp = await mkdtemp(path.join(tmpdir(), "oct-validate-db-"));
+    try {
+      execFileSync("tar", ["--extract", "--file", archivePath, "--directory", temp, "--no-same-owner", "--no-same-permissions", manifest.databaseRelative], { stdio: "ignore" });
+      const databasePath = path.join(temp, manifest.databaseRelative);
+      const integrity = execFileSync("sqlite3", [databasePath, "PRAGMA integrity_check;"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+      if (integrity !== "ok") throw new Error(`Checkpoint SQLite integrity_check failed: ${integrity || "no result"}`);
+    } finally {
+      await rm(temp, { recursive: true, force: true });
+    }
+  } else if (manifest.currentSession) {
+    throw new Error("Checkpoint manifest selects a session but has no database path.");
   }
   return manifest;
 }
@@ -441,6 +459,7 @@ async function save() {
       currentSession: settings.currentSession || null,
       selectedProjectRelative,
       includedPaths: included,
+      databaseRelative,
     };
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n", { mode: 0o600 });
     runTar(["--append", "--file", archivePath, "--directory", temp, MANIFEST_NAME]);
@@ -451,7 +470,7 @@ async function save() {
       const previousArchive = gunzipSync(decrypt(previousEncrypted, key));
       const previousArchivePath = path.join(temp, "previous-checkpoint.tar.gz");
       await writeFile(previousArchivePath, previousArchive, { mode: 0o600 });
-      validateArchive(previousArchivePath);
+      await validateArchive(previousArchivePath);
       if (previousArchive.equals(plainArchive)) {
         process.stdout.write("Checkpoint content is unchanged; preserving the existing encrypted snapshot.\\n");
         return;
@@ -519,7 +538,7 @@ async function restore() {
         const encrypted = await readFile(candidate.path);
         const archive = gunzipSync(decrypt(encrypted, key));
         await writeFile(archivePath, archive, { mode: 0o600 });
-        manifest = validateArchive(archivePath);
+        manifest = await validateArchive(archivePath);
         selectedCandidate = candidate;
         break;
       } catch (error) {
