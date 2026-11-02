@@ -217,7 +217,7 @@ async function inspectRuntimeState(home, label) {
     `${label}: OpenCode database ${databaseBytes === null ? "MISSING" : `${databaseIsSQLite ? "valid SQLite" : "INVALID"} (${databaseBytes} bytes)`}; ` +
     `bot settings ${settingsExists ? "present" : "not created"}; ` +
     `current session ${hasCurrentSession ? "selected" : "none"}; ` +
-    `current project ${hasCurrentProject ? "selected" : "none"}\n`,
+    `current project ${hasCurrentProject ? (projectWorktreeExists ? "selected; worktree present" : "selected; worktree missing") : "none"}\n`,
   );
 
   if (hasCurrentSession && !databaseIsSQLite) {
