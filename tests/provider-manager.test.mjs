@@ -54,3 +54,32 @@ test("provider manager adds, lists, and removes providers without losing existin
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("removes provider by case-insensitive ID/display name and fails truthfully when absent", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "opencode-provider-remove-test-"));
+  const configFile = path.join(root, "config", "opencode.json");
+  await mkdir(path.dirname(configFile), { recursive: true });
+  await writeFile(configFile, JSON.stringify({
+    provider: {
+      "nvidia-kimi": { name: "NVIDIA Kimi", models: { "kimi-k2": { name: "Kimi K2" } } },
+      keep: { name: "Keep", models: { model: { name: "Model" } } },
+    },
+  }));
+  const env = { ...process.env, HOME: root, XDG_CONFIG_HOME: path.join(root, "config"), OPENCODE_CONFIG_FILE: configFile };
+  try {
+    const removeByName = spawnSync(process.execPath, [script, "remove", "--id", "NvidiaKimi"], { env, encoding: "utf8" });
+    assert.equal(removeByName.status, 0, removeByName.stderr);
+    assert.match(removeByName.stdout, /Removed provider "nvidia-kimi"/);
+    let config = JSON.parse(await readFile(configFile, "utf8"));
+    assert.equal(config.provider["nvidia-kimi"], undefined);
+    assert.ok(config.provider.keep);
+
+    const missing = spawnSync(process.execPath, [script, "remove", "--id", "not-configured"], { env, encoding: "utf8" });
+    assert.notEqual(missing.status, 0, "missing providers must not look like successful removals");
+    assert.match(missing.stderr, /was not found/);
+    config = JSON.parse(await readFile(configFile, "utf8"));
+    assert.ok(config.provider.keep);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
