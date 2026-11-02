@@ -96,6 +96,8 @@ jobs:
       - name: Start isolated OpenCode V2 server
         id: start_opencode
         env:
+          # The hosted OpenCode provider is used by the server process, not just the Telegram client.
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           AI_PROVIDER_API_KEY: ${{ secrets.AI_PROVIDER_API_KEY }}
         shell: bash
         run: |
