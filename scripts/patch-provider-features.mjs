@@ -101,14 +101,47 @@ import { getCurrentProject } from "../../app/stores/settings-store.js";
 import { getCurrentSession, clearSession } from "../../app/services/session-service.js";
 import { isForegroundBusy } from "../../app/services/run-control-service.js";
 import { loadSessionPage, buildSessionSelectionMenuView } from "../menus/session-selection-menu.js";
+import { ensureActiveInlineMenu } from "../menus/inline-menu.js";
 import { config } from "../../config.js";
 import { logger } from "../../utils/logger.js";
+import { t } from "../../i18n/index.js";
 const PREFIX = "session:delete:";
 const CONFIRM = "session:delete-confirm:";
 const CANCEL = "session:delete-cancel:";
+
+async function closeEmptySessionMenu(ctx, deps) {
+  // Clear the interaction slot before Telegram API calls so a failed message edit
+  // can never leave the bot waiting for a button that no longer exists.
+  deps.interactionManager.clearKind("inline", "manual");
+  try {
+    await ctx.deleteMessage();
+    await ctx.reply(t("sessions.empty"));
+    return;
+  } catch (deleteError) {
+    logger.warn("[Sessions] Could not delete empty session menu; removing its keyboard instead:", deleteError);
+  }
+  try {
+    await ctx.editMessageText(t("sessions.empty"), { reply_markup: { inline_keyboard: [] } });
+  } catch (editError) {
+    logger.error("[Sessions] Could not close empty session menu:", editError);
+    await ctx.reply(t("sessions.empty"));
+  }
+}
+
+async function refreshSessionMenu(ctx, deps, project) {
+  const page = await loadSessionPage(project.worktree, 0, config.bot.sessionsListLimit);
+  if (page.sessions.length === 0) {
+    await closeEmptySessionMenu(ctx, deps);
+    return;
+  }
+  const view = buildSessionSelectionMenuView(page, config.bot.sessionsListLimit);
+  await ctx.editMessageText(view.text, { reply_markup: view.keyboard });
+}
+
 export async function handleSafeSessionDelete(ctx, deps) {
   const data = ctx.callbackQuery?.data ?? "";
   if (!data.startsWith(PREFIX) && !data.startsWith(CONFIRM) && !data.startsWith(CANCEL)) return false;
+  if (!(await ensureActiveInlineMenu(ctx, "session", deps))) return true;
   if (isForegroundBusy(deps)) { await ctx.answerCallbackQuery({ text: "Finish the running task before deleting a session.", show_alert: true }); return true; }
   const prefix = data.startsWith(CONFIRM) ? CONFIRM : data.startsWith(CANCEL) ? CANCEL : PREFIX;
   const sessionID = data.slice(prefix.length);
@@ -121,10 +154,8 @@ export async function handleSafeSessionDelete(ctx, deps) {
     return true;
   }
   if (prefix === CANCEL) {
-    const page = await loadSessionPage(project.worktree, 0, config.bot.sessionsListLimit);
-    const view = buildSessionSelectionMenuView(page, config.bot.sessionsListLimit);
     await ctx.answerCallbackQuery({ text: "Deletion cancelled." });
-    await ctx.editMessageText(view.text, { reply_markup: view.keyboard });
+    await refreshSessionMenu(ctx, deps, project);
     return true;
   }
   try {
@@ -134,11 +165,9 @@ export async function handleSafeSessionDelete(ctx, deps) {
     const { error } = await opencodeClient.session.delete({ sessionID, directory: project.worktree });
     if (error) throw error;
     if (current?.id === sessionID) clearSession();
-    const page = await loadSessionPage(project.worktree, 0, config.bot.sessionsListLimit);
-    const view = buildSessionSelectionMenuView(page, config.bot.sessionsListLimit);
     await ctx.answerCallbackQuery({ text: "Session deleted." });
-    await ctx.editMessageText(view.text, { reply_markup: view.keyboard });
-  } catch (error) { logger.error("[Sessions] Safe deletion failed:", error); await ctx.answerCallbackQuery({ text: "Could not delete session. It may already be gone.", show_alert: true }); }
+    await refreshSessionMenu(ctx, deps, project);
+  } catch (error) { logger.error("[Sessions] Safe deletion failed:", error); await ctx.answerCallbackQuery({ text: "Could not delete session. It may already be gone.", show_alert: true }).catch(() => {}); }
   return true;
 }
 `;
