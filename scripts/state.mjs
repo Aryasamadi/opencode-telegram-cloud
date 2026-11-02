@@ -152,9 +152,10 @@ async function getSelectedProjectWorktree(home) {
 
   const absolutePath = path.resolve(worktree);
   const relativePath = getHomeRelativePath(home, absolutePath, "Selected project worktree");
-  if (relativePath === ".") {
-    throw new Error("Selected project cannot be HOME itself; refusing to archive the entire runner home.");
-  }
+  // HOME itself is a valid selected project in the Telegram bot. In that case,
+  // save() archives the HOME tree with explicit exclusions for credentials,
+  // runner internals, caches, and the live checkout.
+  if (relativePath === ".") return ".";
 
   try {
     const projectStat = await stat(absolutePath);
@@ -272,7 +273,11 @@ async function save() {
   }
 
   const selectedProjectRelative = await getSelectedProjectWorktree(home);
-  if (selectedProjectRelative && !isPathCovered(selectedProjectRelative, included)) {
+  if (selectedProjectRelative === ".") {
+    // The user explicitly selected HOME as the project root. Archive it once,
+    // excluding runner internals and credential stores below.
+    included.splice(0, included.length, ".");
+  } else if (selectedProjectRelative && !isPathCovered(selectedProjectRelative, included)) {
     included.push(selectedProjectRelative);
   }
 
@@ -306,6 +311,25 @@ async function save() {
   try {
     const tarExcludes = [
       `--exclude=${path.join(configHomeRelative, "opencode", "service.json")}`,
+      // Never copy host credentials or ephemeral GitHub-hosted runner internals.
+      "--exclude=.ssh",
+      "--exclude=.gnupg",
+      "--exclude=.aws",
+      "--exclude=.azure",
+      "--exclude=.docker",
+      "--exclude=.kube",
+      "--exclude=.npm",
+      "--exclude=.config/gh",
+      "--exclude=.git-credentials",
+      "--exclude=.netrc",
+      "--exclude=.npmrc",
+      "--exclude=.bash_history",
+      "--exclude=work",
+      "--exclude=_work",
+      "--exclude=_temp",
+      "--exclude=externals",
+      "--exclude=_diag",
+      "--exclude=actions-runner",
       "--exclude=node_modules",
       "--exclude=.git",
       "--exclude=.state",
