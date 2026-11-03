@@ -204,7 +204,142 @@ const sessionHandler = await patch(
   "session callback handler",
 );
 
+// Generic context-overflow recovery (all providers, all models, all sessions).
+// OpenCode 2.2.5 only auto-compacts when the provider error message matches a fixed
+// regex list; NVIDIA answers HTTP 400 with {"message":"Invalid request","details":
+// {"type":"context_length","limit":...,"actual":...}}, which matches none of them,
+// so the session used to die permanently. This helper recognizes the overflow shape
+// (details.type/details.limit+actual, or overflow phrasing in the message), compacts
+// the session via session.summarize (session.compact) and resends the last user
+// prompt exactly once. The resend rides the normal SSE flow, so the answer streams
+// back into Telegram as usual.
+const recoveryHelperPath = path.join(packageRoot, "app/services/overflow-recovery-service.js");
+const recoveryHelper = `import { opencodeClient } from "../../opencode/client.js";
+import { getStoredModel } from "./model-selection-service.js";
+import { getStoredAgent, resolveProjectAgent } from "./agent-selection-service.js";
+import { logger } from "../../utils/logger.js";
+
+const OVERFLOW_PATTERNS = [
+    /context[_ -]?length/,
+    /context window/,
+    /maximum context/,
+    /max (?:model )?context/,
+    /prompt is too long/,
+    /input is too long/,
+    /too (?:large|long) for (?:the )?(?:model|request)/,
+    /exceeds? (?:the )?(?:model'?s )?(?:maximum |max )?(?:context|token|input)/,
+    /tokens? (?:in request )?(?:more than|exceed)/,
+    /reduce the length/,
+    /invalid request[^}]{0,160}(context|token|length|limit)/,
+    /(context|token|length|limit)[^}]{0,160}invalid request/,
+];
+const recoveredAt = new Map();
+const RECOVERY_WINDOW_MS = 10 * 60 * 1000;
+
+export function isContextOverflowError(error) {
+    if (!error) return false;
+    const details = error.details ?? error.error?.details ?? error.data?.details ?? error.body?.details ?? error.response?.details;
+    const dtype = String(details?.type ?? "").toLowerCase();
+    if (dtype.includes("context") || dtype.includes("length")) return true;
+    if (typeof details?.limit === "number" && typeof details?.actual === "number" && details.actual > details.limit) return true;
+    const message = String(error.message ?? error.error?.message ?? error.msg ?? error).toLowerCase();
+    return OVERFLOW_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+export async function recoverSessionFromOverflow(sessionID) {
+    if (!sessionID) return false;
+    const now = Date.now();
+    if (now - (recoveredAt.get(sessionID) ?? 0) < RECOVERY_WINDOW_MS) return false;
+    recoveredAt.set(sessionID, now);
+    try {
+        const { data: session, error: getError } = await opencodeClient.session.get({ sessionID });
+        if (getError || !session) throw getError || new Error("session not found");
+        logger.warn("[OverflowRecovery] context overflow on session " + sessionID + "; compacting");
+        const { error: compactError } = await opencodeClient.session.summarize({ sessionID });
+        if (compactError) throw compactError;
+        const { data: messages, error: messagesError } = await opencodeClient.session.messages({ sessionID, limit: 100 });
+        if (messagesError) throw messagesError;
+        const list = Array.isArray(messages) ? messages : (messages?.data ?? []);
+        let lastUserText = null;
+        for (let i = list.length - 1; i >= 0; i--) {
+            const info = list[i]?.info ?? list[i];
+            if (info?.role !== "user") continue;
+            const texts = (list[i]?.parts ?? [])
+                .filter((part) => part?.type === "text" && typeof part?.text === "string" && part.text.trim())
+                .map((part) => part.text);
+            if (texts.length) {
+                lastUserText = texts.join("\\n\\n");
+                break;
+            }
+        }
+        if (!lastUserText) {
+            logger.warn("[OverflowRecovery] no user text to resend for session " + sessionID);
+            return true;
+        }
+        const model = getStoredModel();
+        const agent = await resolveProjectAgent(getStoredAgent()).catch(() => getStoredAgent());
+        const prompt = {
+            sessionID,
+            ...(session.directory ? { directory: session.directory } : {}),
+            parts: [{ type: "text", text: lastUserText }],
+            ...(agent ? { agent } : {}),
+            ...(model?.providerID && model?.modelID
+                ? { model: { providerID: model.providerID, modelID: model.modelID }, ...(model.variant ? { variant: model.variant } : {}) }
+                : {}),
+        };
+        const { error: promptError } = await opencodeClient.session.promptAsync(prompt);
+        if (promptError) throw promptError;
+        logger.warn("[OverflowRecovery] resent the last user prompt to session " + sessionID + " after compaction");
+        return true;
+    }
+    catch (err) {
+        logger.error("[OverflowRecovery] recovery failed for session " + sessionID + ":", err);
+        return false;
+    }
+}
+`;
+await writeFile(recoveryHelperPath, recoveryHelper, { mode: 0o644 });
+
+const aggregator = await patch(
+  path.join(packageRoot, "app/managers/summary-aggregation-manager.js"),
+  (source) => {
+    const importAnchor = 'import { getCurrentProject } from "../stores/settings-store.js";';
+    const importReplacement = importAnchor +
+      '\nimport { isContextOverflowError, recoverSessionFromOverflow } from "../services/overflow-recovery-service.js";';
+    if (!source.includes(importAnchor)) throw new Error("Upstream aggregator import anchor changed.");
+    if (!source.includes("overflow-recovery-service.js")) {
+      source = source.replace(importAnchor, importReplacement);
+    }
+    const errorAnchor = "logger.warn(`[Aggregator] Session error: ${sessionID}: ${message}`);";
+    const errorReplacement = errorAnchor + `
+        if (isContextOverflowError(error)) {
+            logger.warn(\`[Aggregator] Context overflow on session \${sessionID}; compacting and retrying the last prompt once\`);
+            void recoverSessionFromOverflow(sessionID);
+        }`;
+    if (source.includes(errorReplacement)) return source;
+    if (!source.includes(errorAnchor)) throw new Error("Upstream session-error anchor changed.");
+    return source.replace(errorAnchor, errorReplacement);
+  },
+  "summary aggregation manager",
+);
+
+// Say plainly when a model has no reasoning variants instead of a bare "empty menu".
+const variantMenu = await patch(
+  path.join(packageRoot, "bot/menus/variant-selection-menu.js"),
+  (source) => {
+    const anchor = 'await ctx.reply(t("variant.menu.empty"));';
+    const replacement = 'await ctx.reply(`${t("variant.menu.empty")} — ${currentModel.providerID}/${currentModel.modelID} has no reasoning variants.`);';
+    if (source.includes(replacement)) return source;
+    if (!source.includes(anchor)) throw new Error("Variant menu empty-state anchor changed.");
+    return source.replace(anchor, replacement);
+  },
+  "variant selection menu",
+);
+
 process.stdout.write(
-  "Provider removal, provider-menu refresh, and truthful Favorites list: " +
-    (router || definitions || callback || modelSelection ? "installed.\\n" : "already installed.\\n"),
+  "Provider removal, provider-menu refresh, truthful Favorites list, " +
+    "context-overflow recovery, and clear no-variants notice: " +
+    (router || definitions || callback || modelSelection || sessionMenu || sessionHandler || aggregator || variantMenu
+      ? "installed.\n"
+      : "already installed.\n"),
 );

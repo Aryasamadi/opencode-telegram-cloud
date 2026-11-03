@@ -18,6 +18,11 @@ server lifecycle.
   workspace files.
 - While the bot is running, creates an authenticated AES-256-GCM encrypted checkpoint every two minutes; it also checkpoints on shutdown and commits only the encrypted file at `.state/agent-state.v1.enc`.
 - Uses SQLite's online backup API for a consistent live database snapshot, rather than copying an actively written database file.
+- Fixes reasoning variants and context limits for **every** provider and model:
+  writes models.dev capabilities plus a safe context/output limit into
+  `opencode.json` before startup, reconciles dropped effort variants against the
+  live server after startup, and makes the bot auto-compact + retry a session
+  when a provider rejects an oversized context.
 
 ## Required GitHub Actions secrets
 
@@ -69,6 +74,41 @@ Completions-compatible providers. Providers that require Anthropic Messages,
 OpenAI Responses, custom headers, or a special SDK adapter need a
 provider-specific configuration instead. OpenCode supports 75+ providers and custom endpoints; see
 https://opencode.ai/docs/providers/.
+
+## Reasoning variants and context limits (all providers, all models)
+
+OpenCode 2.2.5 builds each model's reasoning variants from its models.dev
+catalog entry under the *same* provider id, and special-cases some NVIDIA
+models (e.g. `minimax*`, `glm*`) down to a plain thinking toggle — so effort
+levels like `low`/`high`/`max` disappeared. Custom providers whose models are
+not in the catalog under their own provider id also fell back to the default
+`{context: 200000, output: 32000}` limit, losing the model's real context
+window. On top of that, OpenCode estimates tokens as `chars/4`, which
+under-counts Persian text roughly 2×, and for models whose output limit equals
+the context limit it requests the whole window for output — any underestimate
+then became an HTTP 400 `"Invalid request"` (`details.type=context_length`)
+that permanently killed the session, because OpenCode's overflow detection only
+matches a fixed list of error phrases.
+
+This repository fixes all three generically, in three layers:
+
+1. **Before server start** — `scripts/configure-model-capabilities.mjs`
+   resolves every configured provider/model against the committed models.dev
+   snapshot (`data/models-dev.snapshot.json.gz`, refreshed with
+   `--refresh-snapshot`) and writes `capabilities.reasoning` plus a safe
+   `limit` (real context minus a 15 % reserve, output capped at
+   `min(real, 32768, 12 % of context)`) into `opencode.json`. Idempotent,
+   atomic 0600 write, never prints API keys.
+2. **After server start** — `scripts/reconcile-reasoning-variants.mjs` compares
+   the live `GET /api/model` list with the catalog for every model, writes any
+   missing effort variants as explicit `variants: { id: { reasoningEffort: id } }`,
+   fixes limits that are smaller than the model's real window, reloads the
+   config (`POST /api/location/reload`) and re-verifies.
+3. **At runtime** — the bot patch in `scripts/patch-provider-features.mjs`
+   recognizes overflow-shaped session errors (any provider: `details.type` /
+   `limit`+`actual`, or overflow phrasing in the message), compacts the session
+   (`session.compact`) and resends the last user prompt exactly once, so a
+   session survives even a provider that reports the overflow unusually.
 
 ## Add a provider from Telegram
 

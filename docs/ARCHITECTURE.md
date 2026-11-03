@@ -56,6 +56,38 @@ the public repository is encrypted ciphertext, not plaintext config. The
 Telegram command adapter that invokes this manager is a separate integration
 step; the manager CLI alone does not register a Telegram command.
 
+## Model capability reconciliation and overflow recovery
+
+OpenCode 2.2.5 derives a model's reasoning variants and limits from its
+models.dev entry only when the provider id matches, and its NVIDIA protocol
+special-cases `minimax*`/`glm*` into a thinking toggle; everything else falls
+back to `variants=[low,medium,high]` and `limit={context:200000,output:32000}`.
+Separately, its token estimate (`chars/4`) under-counts Persian text ~2× and,
+for models whose output limit equals the context limit, `outputLimit()` asks for
+the whole window — so long sessions hit HTTP 400
+`{"message":"Invalid request","details":{"type":"context_length",...}}`, which
+OpenCode's phrase-based overflow detector does not recognize, killing the
+session without auto-compaction.
+
+Three generic layers fix this for every provider, model, and session:
+
+- `scripts/configure-model-capabilities.mjs` (pre-start) resolves each
+  configured provider/model against the committed gzipped models.dev snapshot
+  (`data/models-dev.snapshot.json.gz`; refresh with `--refresh-snapshot`,
+  falling back to a live fetch) and merges `capabilities.reasoning` and a safe
+  `limit` into `opencode.json` (atomic 0600 write; keys are never printed).
+- `scripts/reconcile-reasoning-variants.mjs` (post-start) diffs the live
+  `GET /api/model` against the catalog for every model, writes missing effort
+  variants as explicit `variants: { id: { reasoningEffort: id } }` (V1 object
+  map, as the config schema requires), reloads via
+  `POST /api/location/reload`, and verifies the result.
+- The bot patch (`scripts/patch-provider-features.mjs`) installs
+  `app/services/overflow-recovery-service.js` in the installed dist: on a
+  session error whose shape indicates context overflow (for any provider),
+  it compacts the session and resends the last user prompt once, so the run
+  continues instead of dying. The variant menu also says plainly when a model
+  has no reasoning variants.
+
 ## Persistence boundary
 
 The checkpoint preserves:
