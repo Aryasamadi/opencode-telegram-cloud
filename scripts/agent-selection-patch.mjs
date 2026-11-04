@@ -46,7 +46,8 @@ export function patchV2ClientSource(source) {
 
   const actual = (await client.session.get({ sessionID })).agent;
   throw new Error(
-    `OpenCode did not apply agent "${agent}" to session ${sessionID}; session reports "${actual ?? "unset"}".`,
+    "OpenCode did not apply agent \"" + agent + "\" to session " + sessionID +
+      "; session reports \"" + (actual ?? "unset") + "\".",
   );
 }
 
