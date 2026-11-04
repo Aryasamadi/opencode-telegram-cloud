@@ -28,7 +28,7 @@ jobs:
         run: |
           set -euo pipefail
           for file in scripts/*.mjs; do node --check "$file"; done
-          node --test tests/addmodel-command.test.mjs tests/provider-manager.test.mjs tests/telegram-patch.test.mjs tests/reload-opencode-config.test.mjs tests/state-roundtrip.test.mjs
+          node --test tests/addmodel-command.test.mjs tests/agent-selection-patch.test.mjs tests/provider-manager.test.mjs tests/telegram-patch.test.mjs tests/reload-opencode-config.test.mjs tests/state-roundtrip.test.mjs
           node scripts/state.mjs self-test
           node scripts/state.test.mjs
 
@@ -67,15 +67,22 @@ jobs:
           DIST="$RUNNER_TEMP/upstream-bot/package/dist"
           OPENCODE_TELEGRAM_DIST="$DIST" node scripts/patch-telegram-bot.mjs
           OPENCODE_TELEGRAM_DIST="$DIST" node scripts/patch-provider-features.mjs
+          OPENCODE_TELEGRAM_DIST="$DIST" node scripts/patch-agent-selection.mjs
           node --check "$DIST/bot/routers/command-router.js"
           node --check "$DIST/bot/commands/definitions.js"
           node --check "$DIST/bot/callbacks/model-selection-callback-handler.js"
+          node --check "$DIST/opencode/v2/client.js"
+          node --check "$DIST/bot/callbacks/agent-selection-callback-handler.js"
           node --check "$DIST/app/services/model-selection-service.js"
           node --check "$DIST/bot/callbacks/safe-session-delete.js"
           grep -q 'bot.command("addmodel"' "$DIST/bot/routers/command-router.js"
           grep -q 'bot.command("removeprovider"' "$DIST/bot/routers/command-router.js"
           grep -q 'command: "removeprovider"' "$DIST/bot/commands/definitions.js"
           grep -q 'reconcileStoredModelSelection({ forceCatalogRefresh: true })' "$DIST/bot/callbacks/model-selection-callback-handler.js"
+          grep -q 'switchAgentAndVerify' "$DIST/opencode/v2/client.js"
+          grep -q 'switchAgent: (params)' "$DIST/opencode/v2/client.js'
+          grep -Fq 'await opencodeClient.session.switchAgent' "$DIST/bot/callbacks/agent-selection-callback-handler.js"
+          grep -Fq 'opencodeServerVersion === "v2"' "$DIST/bot/callbacks/agent-selection-callback-handler.js"
           grep -q 'const favorites = validatedFavorites;' "$DIST/app/services/model-selection-service.js"
           grep -Fq 'favorites: [],' "$DIST/app/services/model-selection-service.js"
           grep -q 'session:delete-confirm:' "$DIST/bot/callbacks/safe-session-delete.js"
