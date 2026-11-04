@@ -64,6 +64,7 @@ jobs:
           npm install --global @opencode/cli@2.2.5 @grinev/opencode-telegram-bot@0.26.6
           node scripts/patch-telegram-bot.mjs
           node scripts/patch-provider-features.mjs
+          node scripts/patch-agent-selection.mjs
           opencode --version
           DATABASE_PATH="$(opencode debug paths db)"
           EXPECTED_DATABASE_PATH="$HOME/.local/share/opencode/opencode.db"
