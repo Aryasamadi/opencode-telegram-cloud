@@ -86,12 +86,12 @@ export function patchAgentCallbackSource(source) {
 
   if (alreadyPatched) return source;
 
-  const importAnchor =
-    'import { applyAgentConfiguredSettings, selectAgent } from "../../app/services/agent-selection-service.js";';
+  const importPattern =
+    /import\s*\{\s*applyAgentConfiguredSettings\s*,\s*selectAgent\s*,?\s*\}\s*from\s*["\']\.\.\/\.\.\/app\/services\/agent-selection-service\.js["\'];/;
   const agentNameAnchor =
     'const agentName = callbackQuery.data.replace("agent:", "");';
 
-  if (!source.includes(importAnchor) || !source.includes(agentNameAnchor)) {
+  if (!importPattern.test(source) || !source.includes(agentNameAnchor)) {
     throw new Error("Upstream agent-selection callback changed; refusing to patch.");
   }
 
@@ -110,12 +110,13 @@ import { getCurrentSession } from "../../app/services/session-service.js";`;
       });
       if (switchResult.error) throw switchResult.error;
       logger.info(
-        `[AgentHandler] OpenCode session ${activeSession.id} confirmed agent "${agentName}"`,
+        "[AgentHandler] OpenCode session " + activeSession.id +
+          ' confirmed agent "' + agentName + '"',
       );
     }
 `;
 
-  let updated = source.replace(importAnchor, importAnchor + imports);
+  let updated = source.replace(importPattern, (match) => match + imports);
   updated = updated.replace(agentNameAnchor, agentNameAnchor + switchBlock);
 
   if (
