@@ -60,13 +60,32 @@ test("V2 client patch is idempotent", () => {
   assert.equal(patchV2ClientSource(once), once);
 });
 
-test("agent button switches the active V2 session before saving or confirming selection", () => {
+test("agent button fails closed unless OpenCode V2 confirms the active session switch", () => {
   const patched = patchAgentCallbackSource(callbackFixture);
   assert.match(patched, /getCurrentSession\(\)/);
-  assert.match(patched, /opencodeServerVersion === "v2"/);
+  assert.match(patched, /opencodeServerVersion !== "v2"/);
+  assert.match(patched, /if \(!activeSession\?\.id\)/);
   assert.match(patched, /await opencodeClient\.session\.switchAgent/);
   assert.match(patched, /if \(switchResult\.error\) throw switchResult\.error/);
-  assert.ok(patched.indexOf("await opencodeClient.session.switchAgent") < patched.indexOf("selectAgent(agentName);"));
+  assert.match(patched, /switchResult\.data !== true/);
+  assert.match(patched, /confirmedSession\.data\?\.agent !== agentName/);
+
+  const switchAt = patched.indexOf("await opencodeClient.session.switchAgent");
+  const verificationAt = patched.indexOf("confirmedSession.data?.agent !== agentName");
+  const localSelectionAt = patched.indexOf("selectAgent(agentName);");
+  assert.ok(switchAt >= 0 && switchAt < verificationAt);
+  assert.ok(verificationAt < localSelectionAt);
+});
+
+test("agent callback patch rejects the legacy success-without-session guard", () => {
+  const legacy = callbackFixture.replace(
+    'const agentName = callbackQuery.data.replace("agent:", "");',
+    'const agentName = callbackQuery.data.replace("agent:", "");\n    const activeSession = getCurrentSession();\n    if (activeSession && opencodeServerVersion === "v2") {',
+  );
+  assert.throws(
+    () => patchAgentCallbackSource(legacy),
+    /Existing agent callback patch is incomplete/,
+  );
 });
 
 test("agent callback patch is idempotent", () => {
