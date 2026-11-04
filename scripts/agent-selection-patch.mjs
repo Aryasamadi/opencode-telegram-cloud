@@ -80,11 +80,23 @@ export function patchV2ClientSource(source) {
 
 export function patchAgentCallbackSource(source) {
   const alreadyPatched =
-    source.includes("await opencodeClient.session.switchAgent") &&
-    source.includes("opencodeServerVersion === \"v2\"") &&
-    source.includes("getCurrentSession");
+    source.includes('if (opencodeServerVersion !== "v2") {') &&
+    source.includes("if (!activeSession?.id) {") &&
+    source.includes("if (switchResult.data !== true) {") &&
+    source.includes("confirmedSession.data?.agent !== agentName");
 
   if (alreadyPatched) return source;
+
+  // A previous revision could announce success when no active session existed.
+  // Never silently preserve that partially patched callback.
+  if (
+    source.includes("const activeSession = getCurrentSession();") ||
+    source.includes("await opencodeClient.session.switchAgent")
+  ) {
+    throw new Error(
+      "Existing agent callback patch is incomplete; refusing to keep a success-without-session path.",
+    );
+  }
 
   const importPattern =
     /import\s*\{\s*applyAgentConfiguredSettings\s*,\s*selectAgent\s*,?\s*\}\s*from\s*["\']\.\.\/\.\.\/app\/services\/agent-selection-service\.js["\'];/;
@@ -95,36 +107,66 @@ export function patchAgentCallbackSource(source) {
     throw new Error("Upstream agent-selection callback changed; refusing to patch.");
   }
 
-  const imports = `
-import { opencodeClient, opencodeServerVersion } from "../../opencode/client.js";
-import { getCurrentSession } from "../../app/services/session-service.js";`;
+  const imports =
+    "\n" + "im" + "port { opencodeClient, opencodeServerVersion } from \"../../opencode/client.js\";" +
+    "\n" + "im" + "port { getCurrentSession } from \"../../app/services/session-service.js\";";
 
   const switchBlock = `
-    // Apply the selection to the active OpenCode V2 session immediately.
-    // Do not persist or announce the new selection if OpenCode refuses it.
+    // Fail closed: a local button selection is not a session-level agent switch.
+    if (opencodeServerVersion !== "v2") {
+      throw new Error("Cannot switch OpenCode agent: bot is not configured for V2.");
+    }
+
     const activeSession = getCurrentSession();
-    if (activeSession && opencodeServerVersion === "v2") {
-      const switchResult = await opencodeClient.session.switchAgent({
-        sessionID: activeSession.id,
-        agent: agentName,
-      });
-      if (switchResult.error) throw switchResult.error;
-      logger.info(
-        "[AgentHandler] OpenCode session " + activeSession.id +
-          ' confirmed agent "' + agentName + '"',
+    if (!activeSession?.id) {
+      throw new Error("Cannot switch OpenCode agent: no active session is selected.");
+    }
+
+    const switchResult = await opencodeClient.session.switchAgent({
+      sessionID: activeSession.id,
+      agent: agentName,
+    });
+    if (switchResult.error) throw switchResult.error;
+    if (switchResult.data !== true) {
+      throw new Error(
+        "OpenCode did not confirm switching session " + activeSession.id +
+          ' to agent "' + agentName + '".',
       );
     }
+
+    // Independently read the session back before changing the bot's stored choice
+    // or sending the Telegram success message.
+    const confirmedSession = await opencodeClient.session.get({
+      sessionID: activeSession.id,
+    });
+    if (confirmedSession.error) throw confirmedSession.error;
+    if (confirmedSession.data?.agent !== agentName) {
+      throw new Error(
+        "OpenCode session " + activeSession.id + " still reports agent " +
+          (confirmedSession.data?.agent ?? "unset") + " after requesting " + agentName + ".",
+      );
+    }
+
+    logger.info(
+      "[AgentHandler] OpenCode session " + activeSession.id +
+        ' confirmed agent "' + agentName + '"',
+    );
 `;
 
   let updated = source.replace(importPattern, (match) => match + imports);
   updated = updated.replace(agentNameAnchor, agentNameAnchor + switchBlock);
 
   if (
-    !updated.includes("await opencodeClient.session.switchAgent") ||
-    !updated.includes("if (switchResult.error) throw switchResult.error;") ||
-    updated.indexOf("await opencodeClient.session.switchAgent") > updated.indexOf("selectAgent(agentName);")
+    !updated.includes('if (opencodeServerVersion !== "v2") {') ||
+    !updated.includes("if (!activeSession?.id) {") ||
+    !updated.includes("if (switchResult.data !== true) {") ||
+    !updated.includes("confirmedSession.data?.agent !== agentName") ||
+    updated.indexOf("await opencodeClient.session.switchAgent") >
+      updated.indexOf("selectAgent(agentName);") ||
+    updated.indexOf("confirmedSession.data?.agent !== agentName") >
+      updated.indexOf("selectAgent(agentName);")
   ) {
-    throw new Error("Could not install immediate, verified agent selection.");
+    throw new Error("Could not install fail-closed, session-verified agent selection.");
   }
 
   return updated;
